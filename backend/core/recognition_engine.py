@@ -287,7 +287,7 @@ class ReagentRecognitionEngine:
             topk: int = 5,
     ) -> Dict:
         """
-        识别试剂
+        识别试剂（单物体）
 
         Args:
             image_input: 摄像头图像
@@ -349,6 +349,125 @@ class ReagentRecognitionEngine:
             ),
         }
 
+    def recognize_multiple(
+            self,
+            image_input,
+            topk: int = 5,
+            min_confidence: float = 0.5,
+    ) -> Dict:
+        """
+        识别多个试剂（多物体识别）
+
+        Args:
+            image_input: 摄像头图像（可能包含多个试剂）
+            topk: 返回前K个候选
+            min_confidence: 检测置信度阈值
+
+        Returns:
+            {
+                "total_objects": 3,
+                "recognized_objects": [
+                    {
+                        "bbox": [x1, y1, x2, y2],
+                        "reagent_id": "乙醇001",
+                        "reagent_name": "乙醇",
+                        "confidence": 0.92,
+                    },
+                    ...
+                ],
+                "unrecognized_objects": [
+                    {
+                        "bbox": [x1, y1, x2, y2],
+                        "best_candidate": "乙醇002",
+                        "confidence": 0.68,
+                    }
+                ]
+            }
+        """
+        if self.faiss_index.total == 0:
+            return {
+                "total_objects": 0,
+                "recognized_objects": [],
+                "unrecognized_objects": [],
+                "message": "系统中尚无注册试剂",
+            }
+
+        try:
+            from backend.core.object_detector import ObjectDetector
+        except ImportError:
+            return {
+                "total_objects": 0,
+                "recognized_objects": [],
+                "unrecognized_objects": [],
+                "message": "目标检测模块未安装，请先安装 ultralytics: pip install ultralytics",
+            }
+
+        # 初始化检测器
+        detector = ObjectDetector()
+
+        # 预处理图像
+        if isinstance(image_input, str):
+            img = cv2.imread(image_input)
+            if img is None:
+                image_array = np.fromfile(image_input, dtype=np.uint8)
+                img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        elif isinstance(image_input, np.ndarray):
+            img = image_input.copy()
+        else:
+            img = np.array(image_input)
+
+        # 检测所有试剂瓶
+        detections = detector.detect(img, confidence_threshold=min_confidence)
+
+        recognized_objects = []
+        unrecognized_objects = []
+
+        # 对每个检测到的物体进行识别
+        for det in detections:
+            x1, y1, x2, y2 = det['bbox']
+            confidence = det['confidence']
+
+            # 裁剪检测区域
+            crop = img[y1:y2, x1:x2]
+
+            if crop.size == 0:
+                continue
+
+            # 识别裁剪的图像
+            result = self.recognize(crop, topk=topk)
+
+            obj_info = {
+                "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                "detection_confidence": float(confidence),
+            }
+
+            if result["recognized"]:
+                obj_info.update({
+                    "reagent_id": result["reagent_id"],
+                    "reagent_name": result["reagent_name"],
+                    "confidence": result["confidence"],
+                    "confidence_pct": result["confidence_pct"],
+                })
+                recognized_objects.append(obj_info)
+            else:
+                if result["candidates"]:
+                    obj_info.update({
+                        "best_candidate": result["candidates"][0]["reagent_id"],
+                        "best_candidate_name": result["candidates"][0]["reagent_name"],
+                        "confidence": result["confidence"],
+                        "confidence_pct": result["confidence_pct"],
+                    })
+                unrecognized_objects.append(obj_info)
+
+        return {
+            "total_objects": len(recognized_objects) + len(unrecognized_objects),
+            "recognized_count": len(recognized_objects),
+            "unrecognized_count": len(unrecognized_objects),
+            "recognized_objects": recognized_objects,
+            "unrecognized_objects": unrecognized_objects,
+            "message": f"检测到 {len(recognized_objects) + len(unrecognized_objects)} 个物体，识别成功 {len(recognized_objects)} 个",
+        }
+
     def _save_index(self):
         """保存索引"""
         self.faiss_index.save(
@@ -374,28 +493,53 @@ class ReagentRecognitionEngine:
             "model": MODEL_CONFIG["backbone"],
         }
 
-    def rebuild_index_from_images(self, data_dir: str):
+    def rebuild_index_from_images(self, data_dir: str, db=None):
         """
         从图片目录重建索引
         （目录结构：data/images/乙醇001/*.jpg）
+        
+        Args:
+            data_dir: 图片目录路径
+            db: 数据库会话（可选，用于获取试剂名称和更新图片数）
         """
         from pathlib import Path
         import cv2
+        import asyncio
+        from backend.core.database import Reagent
+        from sqlalchemy import select, update
 
         data_path = Path(data_dir).resolve()
         self.faiss_index = FAISSIndex(self.embedding_dim)
 
+        # 从数据库获取试剂名称映射
+        reagent_name_map = {}
+        if db is not None:
+            try:
+                result = asyncio.run(db.execute(select(Reagent)))
+                reagents = result.scalars().all()
+                reagent_name_map = {r.reagent_id: r.reagent_name for r in reagents}
+                print(f"[Engine] 从数据库加载了 {len(reagent_name_map)} 个试剂名称")
+            except Exception as e:
+                print(f"[Engine] 从数据库加载试剂名称失败: {e}")
+
+        # 统计每个试剂的图片数量
+        reagent_image_counts = {}
         total = 0
+        
         for class_dir in sorted(data_path.iterdir()):
             if not class_dir.is_dir():
                 continue
 
             reagent_id = class_dir.name
-            # 从ID提取名称（去掉末尾数字）
-            reagent_name = reagent_id.rstrip('0123456789')
+            # 优先使用数据库中的名称，否则从ID推断
+            reagent_name = reagent_name_map.get(reagent_id)
+            if not reagent_name:
+                reagent_name = reagent_id.rstrip('0123456789')
+                print(f"[Engine] 警告: 未找到 '{reagent_id}' 的数据库记录，使用推断名称: {reagent_name}")
 
-            print(f"[Engine] 处理类别: {reagent_id}")
+            print(f"[Engine] 处理类别: {reagent_id} - {reagent_name}")
             
+            image_count = 0
             for img_file in class_dir.glob("*.[jJpP][pPnN][gG]"):
                 try:
                     self.register_reagent(
@@ -405,11 +549,85 @@ class ReagentRecognitionEngine:
                         image_save_path=str(img_file.resolve()),
                     )
                     total += 1
+                    image_count += 1
                 except Exception as e:
                     print(f"  处理 {img_file.name} 失败: {str(e)}")
+            
+            reagent_image_counts[reagent_id] = image_count
 
         print(f"[Engine] 索引重建完成，共注册 {total} 张图片")
         self._save_index()
+        
+        # 更新数据库中的图片数量
+        if db is not None and reagent_image_counts:
+            try:
+                for reagent_id, count in reagent_image_counts.items():
+                    asyncio.run(db.execute(
+                        update(Reagent)
+                        .where(Reagent.reagent_id == reagent_id)
+                        .values(image_count=count)
+                    ))
+                asyncio.run(db.commit())
+                print(f"[Engine] 已更新 {len(reagent_image_counts)} 个试剂的图片数量")
+            except Exception as e:
+                print(f"[Engine] 更新数据库图片数量失败: {e}")
+
+    def delete_reagent(self, reagent_id: str) -> Dict:
+        """
+        删除试剂的所有特征向量
+
+        Args:
+            reagent_id: 试剂唯一ID
+
+        Returns:
+            删除结果
+        """
+        if self.faiss_index.total == 0:
+            return {
+                "success": True,
+                "deleted_count": 0,
+                "message": f"试剂 {reagent_id} 的索引为空",
+            }
+
+        # 找到所有属于该试剂的向量
+        to_delete = set()
+        for i, metadata in enumerate(self.faiss_index.id_map):
+            if metadata.get("reagent_id") == reagent_id:
+                to_delete.add(i)
+
+        if not to_delete:
+            return {
+                "success": True,
+                "deleted_count": 0,
+                "message": f"未找到试剂 {reagent_id} 的特征向量",
+            }
+
+        # 重建索引（排除要删除的向量）
+        new_id_map = []
+        new_index = faiss.IndexFlatIP(self.embedding_dim)
+        
+        # 重新添加未被删除的向量
+        for i, metadata in enumerate(self.faiss_index.id_map):
+            if i not in to_delete:
+                # 从旧索引中重建向量
+                vec = self.faiss_index.index.reconstruct(i)
+                new_index.add(vec.reshape(1, -1))
+                new_id_map.append(metadata)
+        
+        self.faiss_index.index = new_index
+        self.faiss_index.id_map = new_id_map
+        
+        # 持久化
+        self._save_index()
+
+        print(f"[Engine] 已删除试剂 {reagent_id} 的 {len(to_delete)} 个特征向量")
+        print(f"[Engine] 剩余特征向量: {self.faiss_index.total}")
+
+        return {
+            "success": True,
+            "deleted_count": len(to_delete),
+            "message": f"已删除试剂 {reagent_id} 的 {len(to_delete)} 个特征向量",
+        }
 
 
 # 单例模式 - 全局唯一引擎实例

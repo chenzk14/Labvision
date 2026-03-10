@@ -1,9 +1,9 @@
 
 // frontend/src/pages/Dashboard.jsx
 import React, { useState, useEffect } from 'react'
-import { Card, Row, Col, Statistic, Alert, Tag, Spin } from 'antd'
+import { Card, Row, Col, Statistic, Alert, Tag, Spin, Button, Space } from 'antd'
 import {
-  ExperimentOutlined, DatabaseOutlined, ThunderboltOutlined, CheckCircleOutlined
+  ExperimentOutlined, DatabaseOutlined, ThunderboltOutlined, CheckCircleOutlined, ReloadOutlined
 } from '@ant-design/icons'
 import { api } from '../services/api'
 
@@ -11,12 +11,35 @@ export default function Dashboard() {
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const loadStatus = async () => {
+    setRefreshing(true)
+    try {
+      const data = await api.getStatus()
+      setStatus(data)
+      setError(null)
+    } catch (e) {
+      setError('无法连接后端服务，请确认已启动 uvicorn')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
 
   useEffect(() => {
-    api.getStatus()
-      .then(setStatus)
-      .catch(e => setError('无法连接后端服务，请确认已启动 uvicorn'))
-      .finally(() => setLoading(false))
+    loadStatus()
+  }, [])
+
+  // 页面获得焦点时自动刷新
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadStatus()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [])
 
   if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
@@ -27,12 +50,29 @@ export default function Dashboard() {
       message="连接失败"
       description={error}
       showIcon
+      action={
+        <Button type="primary" onClick={loadStatus}>
+          重试连接
+        </Button>
+      }
       style={{ maxWidth: 600 }}
     />
   )
 
   return (
     <div>
+      <div style={{ marginBottom: 16, textAlign: 'right' }}>
+        <Space>
+          <span style={{ color: '#666' }}>最后更新: {new Date().toLocaleTimeString()}</span>
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={loadStatus}
+            loading={refreshing}
+          >
+            刷新数据
+          </Button>
+        </Space>
+      </div>
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={6}>
           <Card>
@@ -95,12 +135,6 @@ export default function Dashboard() {
             </p>
           </Col>
         </Row>
-        <Alert
-          type="info"
-          message="快速开始"
-          description="1. 前往「试剂录入」注册试剂信息和图片 → 2. 前往「实时识别」测试摄像头识别效果"
-          showIcon
-        />
       </Card>
     </div>
   )

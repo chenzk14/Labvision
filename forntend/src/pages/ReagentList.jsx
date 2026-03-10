@@ -1,7 +1,7 @@
 // frontend/src/pages/ReagentList.jsx
 import React, { useState, useEffect } from 'react'
-import { Table, Tag, Button, Space, Modal, Descriptions, Image, message, Input } from 'antd'
-import { EyeOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
+import { Table, Tag, Button, Space, Modal, Descriptions, Image, message, Input, Popconfirm } from 'antd'
+import { EyeOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { api } from '../services/api'
 
 export default function ReagentList() {
@@ -24,6 +24,17 @@ export default function ReagentList() {
 
   useEffect(() => { loadReagents() }, [])
 
+  // 页面获得焦点时自动刷新
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadReagents()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+
   const handleDelete = async (reagentId) => {
     Modal.confirm({
       title: `确认取出试剂 ${reagentId}？`,
@@ -32,6 +43,38 @@ export default function ReagentList() {
         await api.deleteReagent(reagentId)
         message.success('已标记取出')
         loadReagents()
+      }
+    })
+  }
+
+  const handlePermanentDelete = async (reagentId) => {
+    Modal.confirm({
+      title: `永久删除试剂 ${reagentId}？`,
+      icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />,
+      content: (
+        <div>
+          <p style={{ color: '#ff4d4f', fontWeight: 600 }}>此操作不可恢复！</p>
+          <p>将删除以下内容：</p>
+          <ul style={{ marginLeft: 20 }}>
+            <li>数据库中的试剂记录</li>
+            <li>FAISS 索引中的所有特征向量</li>
+            <li>所有图片文件</li>
+          </ul>
+        </div>
+      ),
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const res = await api.deleteReagentPermanent(reagentId)
+          message.success(
+            `删除成功：${res.deleted_vectors} 个特征，${res.deleted_files} 个文件`
+          )
+          loadReagents()
+        } catch (err) {
+          message.error('删除失败：' + (err.response?.data?.detail || err.message))
+        }
       }
     })
   }
@@ -77,9 +120,31 @@ export default function ReagentList() {
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.reagent_id)}>
             详情
           </Button>
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.reagent_id)}>
+          <Button 
+            size="small" 
+            danger 
+            icon={<DeleteOutlined />} 
+            onClick={() => handleDelete(record.reagent_id)}
+          >
             取出
           </Button>
+          <Popconfirm
+            title="永久删除"
+            description="此操作将永久删除试剂的所有数据，不可恢复！"
+            onConfirm={() => handlePermanentDelete(record.reagent_id)}
+            okText="确认删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button 
+              size="small" 
+              type="primary" 
+              danger
+              icon={<DeleteOutlined />}
+            >
+              永久删除
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -95,7 +160,13 @@ export default function ReagentList() {
           onChange={e => setSearchText(e.target.value)}
           style={{ width: 280 }}
         />
-        <Button onClick={loadReagents} loading={loading}>刷新</Button>
+        <Button 
+          onClick={loadReagents} 
+          loading={loading}
+          type="primary"
+        >
+          刷新列表
+        </Button>
       </div>
 
       <Table

@@ -33,6 +33,25 @@ export const api = {
   recognizeBase64: (b64) =>
     client.post('/api/recognize/base64', { image: b64 }).then(r => r.data),
 
+  // 多物体识别
+  recognizeMultipleFile: (file, minConfidence = 0.5, topk = 5) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('min_confidence', minConfidence)
+    fd.append('topk', topk)
+    return client.post('/api/recognize/multiple', fd).then(r => r.data)
+  },
+  recognizeMultipleBase64: (b64, minConfidence = 0.5, topk = 5) =>
+    client.post('/api/recognize/multiple/base64', {
+      image: b64,
+      min_confidence: minConfidence,
+      topk: topk
+    }).then(r => r.data),
+
   // 日志
   getLogs: () => client.get('/api/logs').then(r => r.data),
+
+  // 永久删除试剂
+  deleteReagentPermanent: (reagentId) =>
+    client.delete(`/api/reagents/${reagentId}/permanent`).then(r => r.data),
 }

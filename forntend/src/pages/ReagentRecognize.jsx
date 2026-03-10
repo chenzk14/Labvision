@@ -121,7 +121,7 @@ export default function ReagentRecognize() {
             background: '#000',
             borderRadius: 8,
             overflow: 'hidden',
-            minHeight: 300,
+            minHeight: 400,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -189,9 +189,11 @@ export default function ReagentRecognize() {
                   <>
                     <CheckCircleOutlined style={{ fontSize: 40, color: '#52c41a' }} />
                     <div style={{ fontSize: 24, fontWeight: 700, marginTop: 8 }}>
-                      {result.reagent_id}
+                      {result.reagent_name || result.reagent_id}
                     </div>
-                    <div style={{ color: '#666' }}>{result.reagent_name}</div>
+                    {result.reagent_name && result.reagent_name !== result.reagent_id && (
+                      <div style={{ color: '#666' }}>ID: {result.reagent_id}</div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -235,7 +237,14 @@ export default function ReagentRecognize() {
                         <Tag color={i === 0 ? 'blue' : 'default'} style={{ margin: 0 }}>
                           #{i + 1}
                         </Tag>
-                        <span style={{ fontSize: 13 }}>{cand.reagent_id}</span>
+                        <div>
+                          <span style={{ fontSize: 13 }}>{cand.reagent_name || cand.reagent_id}</span>
+                          {cand.reagent_id && cand.reagent_id !== cand.reagent_name && (
+                            <span style={{ color: '#666', fontSize: 12, marginLeft: 4 }}>
+                              ({cand.reagent_id})
+                            </span>
+                          )}
+                        </div>
                       </Space>
                       <span style={{
                         fontSize: 12,
@@ -280,7 +289,14 @@ export default function ReagentRecognize() {
               }}>
                 <Space size={8}>
                   <Badge color={confidenceColor(item.confidence)} />
-                  <strong>{item.reagent_id}</strong>
+                  <div>
+                    <strong>{item.reagent_name || item.reagent_id}</strong>
+                    {item.reagent_id && item.reagent_id !== item.reagent_name && (
+                      <span style={{ color: '#666', marginLeft: 4 }}>
+                        ({item.reagent_id})
+                      </span>
+                    )}
+                  </div>
                 </Space>
                 <Space size={12}>
                   <span style={{ color: confidenceColor(item.confidence) }}>

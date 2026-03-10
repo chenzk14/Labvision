@@ -1,177 +1,123 @@
 [
   {
-    "reagent_id": "0003",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 0,
-    "timestamp": 1773050535.114916,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0003\\1773046710235_front.jpg"
+    "timestamp": 1773114389.6750755,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113033185_front.jpg"
   },
   {
-    "reagent_id": "0003",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 1,
-    "timestamp": 1773050535.1519005,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0003\\1773046718559_front.jpg"
+    "timestamp": 1773114389.7116005,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113041240_side.jpg"
   },
   {
-    "reagent_id": "0003",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 2,
-    "timestamp": 1773050535.1868894,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0003\\1773046727332_side.jpg"
+    "timestamp": 1773114389.7441194,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113046011_side.jpg"
   },
   {
-    "reagent_id": "0003",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 3,
-    "timestamp": 1773050535.221409,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0003\\1773046735208_front.jpg"
+    "timestamp": 1773114389.7776139,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113049936_side.jpg"
   },
   {
-    "reagent_id": "0003",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 4,
-    "timestamp": 1773050535.2549949,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0003\\1773046750834_side.jpg"
+    "timestamp": 1773114389.811127,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113056579_side.jpg"
   },
   {
-    "reagent_id": "0004",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 5,
-    "timestamp": 1773050535.289455,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0004\\1773046798399_front.jpg"
+    "timestamp": 1773114389.8441813,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113063910_side.jpg"
   },
   {
-    "reagent_id": "0004",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 6,
-    "timestamp": 1773050535.323646,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0004\\1773046803581_front.jpg"
+    "timestamp": 1773114389.8771935,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113068220_top.jpg"
   },
   {
-    "reagent_id": "0004",
-    "reagent_name": "",
+    "reagent_id": "水杯001",
+    "reagent_name": "水杯",
     "vector_id": 7,
-    "timestamp": 1773050535.3581717,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0004\\1773046813298_top.jpg"
+    "timestamp": 1773114389.9136243,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\水杯001\\1773113072054_side.jpg"
   },
   {
-    "reagent_id": "0004",
-    "reagent_name": "",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 8,
-    "timestamp": 1773050535.3927157,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\0004\\1773046819089_front.jpg"
+    "timestamp": 1773114389.9490895,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113109368_front.jpg"
   },
   {
-    "reagent_id": "002",
-    "reagent_name": "",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 9,
-    "timestamp": 1773050535.4282289,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\002\\1773045791907_front.jpg"
+    "timestamp": 1773114389.984067,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113114724_side.jpg"
   },
   {
-    "reagent_id": "002",
-    "reagent_name": "",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 10,
-    "timestamp": 1773050535.4623208,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\002\\1773045802844_side.jpg"
+    "timestamp": 1773114390.0175536,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113119988_side.jpg"
   },
   {
-    "reagent_id": "002",
-    "reagent_name": "",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 11,
-    "timestamp": 1773050535.496305,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\002\\1773045807869_top.jpg"
+    "timestamp": 1773114390.0531232,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113126206_side.jpg"
   },
   {
-    "reagent_id": "002",
-    "reagent_name": "",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 12,
-    "timestamp": 1773050535.531805,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\002\\1773045817488_side.jpg"
+    "timestamp": 1773114390.0871866,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113131435_side.jpg"
   },
   {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 13,
-    "timestamp": 1773050535.565384,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\1.png"
+    "timestamp": 1773114390.1212003,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113137119_side.jpg"
   },
   {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 14,
-    "timestamp": 1773050535.5974393,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\3.png"
+    "timestamp": 1773114390.1563253,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113142128_top.jpg"
   },
   {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
+    "reagent_id": "紫色—尖叫001",
+    "reagent_name": "紫色—尖叫",
     "vector_id": 15,
-    "timestamp": 1773050535.6309454,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\4.png"
+    "timestamp": 1773114390.1915183,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\紫色—尖叫001\\1773113149675_side.jpg"
   },
   {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
+    "reagent_id": "绿色—尖叫001",
+    "reagent_name": "绿色—尖叫",
     "vector_id": 16,
-    "timestamp": 1773050535.6629763,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\ScreenShot_2026-03-03_114656_659.png"
-  },
-  {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
-    "vector_id": 17,
-    "timestamp": 1773050535.7199826,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\微信图片_20260205153308_301_9.jpg"
-  },
-  {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
-    "vector_id": 18,
-    "timestamp": 1773050535.776573,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\微信图片_20260205153312_306_9.jpg"
-  },
-  {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
-    "vector_id": 19,
-    "timestamp": 1773050535.8296773,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\微信图片_20260205153312_307_9.jpg"
-  },
-  {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
-    "vector_id": 20,
-    "timestamp": 1773050535.8962655,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\微信图片_20260205153314_309_9.jpg"
-  },
-  {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
-    "vector_id": 21,
-    "timestamp": 1773050535.9607058,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\微信图片_20260205153315_310_9.jpg"
-  },
-  {
-    "reagent_id": "乙醇",
-    "reagent_name": "乙醇",
-    "vector_id": 22,
-    "timestamp": 1773050536.0272088,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\乙醇\\微信图片_20260205153320_317_9.jpg"
-  },
-  {
-    "reagent_id": "钠",
-    "reagent_name": "钠",
-    "vector_id": 23,
-    "timestamp": 1773050536.060711,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\钠\\1.png"
-  },
-  {
-    "reagent_id": "钠",
-    "reagent_name": "钠",
-    "vector_id": 24,
-    "timestamp": 1773050536.0937462,
-    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\钠\\2.png"
+    "timestamp": 1773115098.1370442,
+    "image_path": "C:\\InsightFaceFAISS\\FSFGIC\\data\\images\\绿色—尖叫001\\1773115097961_front.jpg",
+    "cas_number": null,
+    "angle": "front"
   }
 ]

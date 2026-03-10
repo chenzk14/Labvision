@@ -24,39 +24,47 @@ import cv2
 
 def get_train_transforms(img_size: int = 224):
     """
-    训练时数据增强
+    训练时数据增强（优化版）
 
     细粒度识别的增强策略：
     - 保留细节特征（不要过度裁剪）
     - 模拟实验室光照变化
     - 模拟摄像头角度轻微变化
+    - 增加更多样化的增强
     """
     return A.Compose([
-        A.Resize(img_size + 32, img_size + 32),
+        # 先放大再随机裁剪
+        A.Resize(img_size + 48, img_size + 48),
         A.RandomCrop(img_size, img_size),
-        A.HorizontalFlip(p=0.3),
-        # 轻微旋转（试剂瓶放置可能有角度）
-        A.Rotate(limit=15, p=0.4),
+        # 水平翻转（试剂瓶对称性）
+        A.HorizontalFlip(p=0.5),
+        # 旋转（试剂瓶放置可能有角度）
+        A.Rotate(limit=20, p=0.6, border_mode=cv2.BORDER_CONSTANT, value=0),
         # 光照变化（实验室灯光不稳定）
         A.RandomBrightnessContrast(
-            brightness_limit=0.3,
-            contrast_limit=0.3,
-            p=0.5
+            brightness_limit=0.4,
+            contrast_limit=0.4,
+            p=0.7
         ),
         # 模拟摄像头噪声
-        A.GaussNoise(var_limit=(10, 50), p=0.3),
+        A.GaussNoise(var_limit=(5, 30), p=0.4),
         # 轻微模糊（摄像头对焦问题）
         A.OneOf([
-            A.MotionBlur(blur_limit=3, p=1.0),
-            A.GaussianBlur(blur_limit=3, p=1.0),
-        ], p=0.2),
-        # 颜色抖动
+            A.MotionBlur(blur_limit=5, p=1.0),
+            A.GaussianBlur(blur_limit=5, p=1.0),
+            A.MedianBlur(blur_limit=5, p=1.0),
+        ], p=0.3),
+        # 颜色抖动（模拟不同摄像头色彩偏差）
         A.HueSaturationValue(
-            hue_shift_limit=10,
-            sat_shift_limit=20,
-            val_shift_limit=20,
-            p=0.4
+            hue_shift_limit=15,
+            sat_shift_limit=30,
+            val_shift_limit=30,
+            p=0.6
         ),
+        # 随机缩放（模拟不同距离）
+        A.RandomScale(scale_limit=0.1, p=0.4),
+        # 确保最终尺寸一致（重要！）
+        A.Resize(img_size, img_size),
         # 归一化（ImageNet均值方差）
         A.Normalize(
             mean=[0.485, 0.456, 0.406],
@@ -70,12 +78,73 @@ def get_val_transforms(img_size: int = 224):
     """验证/推理时的变换（不增强）"""
     return A.Compose([
         A.Resize(img_size, img_size),
+        # 中心裁剪（保留主体）
+        A.CenterCrop(img_size, img_size, p=1.0),
         A.Normalize(
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225]
         ),
         ToTensorV2(),
     ])
+
+
+def get_tta_transforms(img_size: int = 224):
+    """
+    测试时增强（TTA）
+    通过多次增强推理取平均提高准确率
+    """
+    transforms = [
+        # 原图
+        A.Compose([
+            A.Resize(img_size, img_size),
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ),
+            ToTensorV2(),
+        ]),
+        # 水平翻转
+        A.Compose([
+            A.Resize(img_size, img_size),
+            A.HorizontalFlip(p=1.0),
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ),
+            ToTensorV2(),
+        ]),
+        # 轻微旋转
+        A.Compose([
+            A.Resize(img_size, img_size),
+            A.Rotate(limit=10, p=1.0, border_mode=cv2.BORDER_CONSTANT, value=0),
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ),
+            ToTensorV2(),
+        ]),
+        # 亮度调整
+        A.Compose([
+            A.Resize(img_size, img_size),
+            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1.0),
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ),
+            ToTensorV2(),
+        ]),
+        # 裁剪
+        A.Compose([
+            A.Resize(img_size + 32, img_size + 32),
+            A.RandomCrop(img_size, img_size),
+            A.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            ),
+            ToTensorV2(),
+        ]),
+    ]
+    return transforms
 
 
 class ReagentDataset(Dataset):

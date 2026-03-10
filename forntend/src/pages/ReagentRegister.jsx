@@ -148,24 +148,23 @@ export default function ReagentRegister() {
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item
-                  name="reagent_id"
-                  label="试剂唯一ID"
-                  rules={[
-                    { required: true, message: '请输入试剂ID' },
-                    { pattern: /^[\u4e00-\u9fa5\w-]{1,20}$/, message: 'ID不超过20字符' }
-                  ]}
-                  extra="例：乙醇001，盐酸003（同一名称的不同瓶子用序号区分）"
-                >
-                  <Input placeholder="乙醇001" size="large" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
                   name="reagent_name"
                   label="试剂名称"
                   rules={[{ required: true, message: '请输入试剂名称' }]}
                 >
                   <Input placeholder="乙醇" size="large" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="reagent_id"
+                  label="试剂唯一ID（可选）"
+                  rules={[
+                    { pattern: /^[\u4e00-\u9fa5\w-]{1,20}$/, message: 'ID不超过20字符' }
+                  ]}
+                  extra="留空则自动生成（例：乙醇001，盐酸003）"
+                >
+                  <Input placeholder="留空自动生成" size="large" />
                 </Form.Item>
               </Col>
             </Row>
@@ -216,9 +215,9 @@ export default function ReagentRegister() {
               <Input placeholder="A柜-3层-左侧" />
             </Form.Item>
 
-            <Form.Item name="notes" label="备注">
-              <Input.TextArea rows={2} placeholder="特殊注意事项..." />
-            </Form.Item>
+            {/*<Form.Item name="notes" label="备注">*/}
+            {/*  <Input.TextArea rows={2} placeholder="特殊注意事项..." />*/}
+            {/*</Form.Item>*/}
 
             <Form.Item>
               <Button
