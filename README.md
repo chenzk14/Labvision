@@ -22,6 +22,10 @@ pip install ultralytics
 # 前端依赖（可选，如果需要开发前端）
 cd forntend
 npm install
+
+# 后端启动
+python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
+
 ```
 
 ### 4. 验证安装
@@ -144,7 +148,7 @@ npm start
 - 自动识别模式
 - 识别历史记录
 
-### 3. 多试剂检测 ⭐ 新功能
+### 3. 多试剂检测 
 - 同时识别图片中的多个试剂瓶
 - 支持摄像头实时检测
 - 支持图片上传批量检测
@@ -204,49 +208,6 @@ GET /api/reagents/{reagent_id}
 # 删除试剂
 DELETE /api/reagents/{reagent_id}
 ```
-
----
-
-## ❓ 常见问题
-
-### Q1: 训练时显存不足？
-A: 减小batch_size，在backend/config.py中修改：
-```python
-TRAIN_CONFIG = {
-    "batch_size": 8,  # 从16改为8
-}
-```
-
-### Q2: 识别准确率低？
-A: 尝试以下方法：
-1. 增加每类图片数量（至少20张）
-2. 使用更好的模型（如swin_tiny_patch4_window7_224）
-3. 调整相似度阈值（backend/config.py中的similarity_threshold）
-4. 重新训练模型
-
-### Q3: 多物体检测不准确？
-A: 调整检测参数：
-- 降低min_confidence（0.3-0.5）检测更多物体
-- 提高min_confidence（0.6-0.8）减少误检
-- 确保图片清晰，光线充足
-
-### Q4: YOLOv8下载失败？
-A: 手动下载模型：
-```python
-from ultralytics import YOLO
-model = YOLO('yolov8n.pt')  # 会自动下载
-```
-
-### Q5: 前端无法连接后端？
-A: 检查：
-1. 后端服务是否启动（http://localhost:8000）
-2. 防火墙是否阻止8000端口
-3. API地址配置（frontend/src/services/api.js中的BASE_URL）
-
-### Q6: 中文路径图片无法读取？
-A: 系统已支持中文路径，如果仍有问题，检查：
-1. 文件编码是否为UTF-8
-2. 路径中是否包含特殊字符
 
 ---
 
@@ -321,14 +282,6 @@ INFERENCE_CONFIG = {
 
 ### 自定义数据增强
 在backend/core/dataset.py中修改增强策略。
-
----
-
-## 📞 技术支持
-
-- 查看API文档：http://localhost:8000/docs
-- 查看训练日志：`logs/` 目录
-- 查看识别日志：数据库 `data/db/reagent.db`
 
 ---
 

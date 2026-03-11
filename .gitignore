@@ -13,6 +13,7 @@ forntend/build/
 forntend/dist/
 build/
 dist/
+deploy_package/
 
 # 日志文件
 *.log
