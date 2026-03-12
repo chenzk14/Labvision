@@ -3,10 +3,11 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Card, Button, Row, Col, Tag, Progress, Alert,
   Statistic, Space, Switch, Spin, Badge, List, Avatar,
+  Modal, Form, Input, Select, message,
 } from 'antd'
 import {
   CameraOutlined, SearchOutlined, CheckCircleOutlined,
-  CloseCircleOutlined, ExperimentOutlined,
+  CloseCircleOutlined, ExperimentOutlined, EditOutlined,
 } from '@ant-design/icons'
 import { api } from '../services/api'
 
@@ -16,10 +17,15 @@ export default function ReagentRecognize() {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [history, setHistory] = useState([])
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false)
+  const [submittingCorrection, setSubmittingCorrection] = useState(false)
+  const [reagents, setReagents] = useState([])
+  const [capturedImageForCorrection, setCapturedImageForCorrection] = useState(null)
 
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const autoTimerRef = useRef(null)
+  const [form] = Form.useForm()
 
   const startCamera = async () => {
     try {
@@ -53,9 +59,11 @@ export default function ReagentRecognize() {
       canvas.height = videoRef.current.videoHeight
       canvas.getContext('2d').drawImage(videoRef.current, 0, 0)
 
-      const b64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+      const imageData = canvas.toDataURL('image/jpeg', 0.9)
+      const b64 = imageData.split(',')[1]
       const res = await api.recognizeBase64(b64)
       setResult(res)
+      setCapturedImageForCorrection(imageData)
 
       if (res.recognized) {
         setHistory(prev => [{
@@ -83,11 +91,67 @@ export default function ReagentRecognize() {
     return () => clearInterval(autoTimerRef.current)
   }, [autoRecognize, cameraActive, captureAndRecognize])
 
+  useEffect(() => {
+    loadReagents()
+  }, [])
+
+  const loadReagents = async () => {
+    try {
+      const data = await api.listReagents()
+      setReagents(data)
+    } catch (e) {
+      console.error('加载试剂列表失败', e)
+    }
+  }
+
   const confidenceColor = (score) => {
     if (!score) return '#d9d9d9'
     if (score >= 0.9) return '#52c41a'
     if (score >= 0.75) return '#1890ff'
     return '#ff4d4f'
+  }
+
+  const handleOpenCorrection = () => {
+    setShowCorrectionModal(true)
+    form.setFieldsValue({
+      original_recognition_id: result?.reagent_id,
+      original_confidence: result?.confidence,
+    })
+  }
+
+  const handleSubmitCorrection = async (values) => {
+    setSubmittingCorrection(true)
+    try {
+      const b64 = capturedImageForCorrection.split(',')[1]
+      const blob = await fetch(`data:image/jpeg;base64,${b64}`).then(res => res.blob())
+
+      const formData = new FormData()
+      formData.append('file', blob, 'correction.jpg')
+      formData.append('corrected_reagent_id', values.corrected_reagent_id)
+      formData.append('corrected_reagent_name', values.corrected_reagent_name)
+      if (values.original_recognition_id) {
+        formData.append('original_recognition_id', values.original_recognition_id)
+      }
+      if (values.original_confidence) {
+        formData.append('original_confidence', values.original_confidence)
+      }
+      if (values.notes) {
+        formData.append('notes', values.notes)
+      }
+      formData.append('apply_immediately', values.apply_immediately)
+      formData.append('correction_source', 'recognize_page')
+
+      const res = await api.submitCorrection(formData)
+      if (res.success) {
+        message.success('纠错提交成功！已自动应用到识别系统')
+        setShowCorrectionModal(false)
+        form.resetFields()
+      }
+    } catch (e) {
+      message.error('提交失败：' + (e.response?.data?.detail || e.message))
+    } finally {
+      setSubmittingCorrection(false)
+    }
   }
 
   return (
@@ -265,6 +329,17 @@ export default function ReagentRecognize() {
                 style={{ marginTop: 12 }}
                 showIcon
               />
+
+              {/* 纠错按钮 */}
+              <Button
+                type="primary"
+                danger={!result.recognized}
+                icon={<EditOutlined />}
+                onClick={handleOpenCorrection}
+                style={{ marginTop: 12, width: '100%' }}
+              >
+                {result.recognized ? '识别错误？点击纠错' : '未识别？点击纠错'}
+              </Button>
             </>
           )}
         </Card>
@@ -309,6 +384,102 @@ export default function ReagentRecognize() {
           )}
         </Card>
       </Col>
+
+      {/* 纠错弹窗 */}
+      <Modal
+        title="纠错识别结果"
+        open={showCorrectionModal}
+        onCancel={() => {
+          setShowCorrectionModal(false)
+          form.resetFields()
+        }}
+        footer={null}
+        width={500}
+      >
+        <Alert
+          message="纠错说明"
+          description="请选择正确的试剂ID，系统将自动将此图片注册到识别引擎中，提升后续识别准确率。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSubmitCorrection}
+        >
+          {capturedImageForCorrection && (
+            <div style={{ marginBottom: 16, textAlign: 'center' }}>
+              <img
+                src={capturedImageForCorrection}
+                alt="captured"
+                style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 4 }}
+              />
+            </div>
+          )}
+          <Form.Item
+            name="corrected_reagent_id"
+            label="正确的试剂ID"
+            rules={[{ required: true, message: '请选择试剂ID' }]}
+          >
+            <Select
+              showSearch
+              placeholder="选择正确的试剂"
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={reagents.map(r => ({ label: `${r.reagent_id} - ${r.reagent_name}`, value: r.reagent_id }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="corrected_reagent_name"
+            label="试剂名称"
+            rules={[{ required: true, message: '请输入试剂名称' }]}
+          >
+            <Input placeholder="如：乙醇" />
+          </Form.Item>
+          <Form.Item
+            name="original_recognition_id"
+            label="原识别结果（可选）"
+          >
+            <Input placeholder="如：乙醇002" />
+          </Form.Item>
+          {/* <Form.Item
+            name="original_confidence"
+            label="原识别置信度（可选）"
+          >
+            <Input type="number" step="0.01" min="0" max="1" placeholder="0.75" />
+          </Form.Item> */}
+          <Form.Item
+            name="notes"
+            label="备注（可选）"
+          >
+            <Input.TextArea rows={2} placeholder="如：标签模糊导致误识别" />
+          </Form.Item>
+          <Form.Item
+            name="apply_immediately"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Select
+              options={[
+                { label: '立即应用到识别系统', value: true },
+                { label: '暂不应用', value: false },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={submittingCorrection}
+              block
+            >
+              提交纠错
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
     </Row>
   )
 }

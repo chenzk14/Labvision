@@ -4,11 +4,13 @@ import {
   Card, Button, Row, Col, Tag, Progress, Alert,
   Statistic, Space, Switch, Spin, List, Avatar,
   Slider, Upload, message, Drawer, Divider,
+  Modal, Form, Input, Select,
 } from 'antd'
 import {
   CameraOutlined, SearchOutlined, CheckCircleOutlined,
   CloseCircleOutlined, ExperimentOutlined, UploadOutlined,
   AppstoreOutlined, PictureOutlined, SettingOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
 import { api } from '../services/api'
 
@@ -22,11 +24,16 @@ export default function MultipleRecognize() {
   const [showSettings, setShowSettings] = useState(false)
   const [capturedImage, setCapturedImage] = useState(null)
   const [selectedObject, setSelectedObject] = useState(null)
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false)
+  const [submittingCorrection, setSubmittingCorrection] = useState(false)
+  const [reagents, setReagents] = useState([])
+  const [correctionObject, setCorrectionObject] = useState(null)
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
   const autoTimerRef = useRef(null)
+  const [form] = Form.useForm()
 
   const startCamera = async () => {
     try {
@@ -95,6 +102,19 @@ export default function MultipleRecognize() {
     }
     return () => clearInterval(autoTimerRef.current)
   }, [autoRecognize, cameraActive, captureAndRecognize])
+
+  useEffect(() => {
+    loadReagents()
+  }, [])
+
+  const loadReagents = async () => {
+    try {
+      const data = await api.listReagents()
+      setReagents(data)
+    } catch (e) {
+      console.error('加载试剂列表失败', e)
+    }
+  }
 
   const handleUpload = async (file) => {
     setLoading(true)
@@ -194,6 +214,51 @@ export default function MultipleRecognize() {
     if (score >= 0.9) return '#52c41a'
     if (score >= 0.75) return '#1890ff'
     return '#ff4d4f'
+  }
+
+  const handleOpenCorrection = (obj, type) => {
+    setCorrectionObject({ obj, type })
+    setShowCorrectionModal(true)
+    form.setFieldsValue({
+      original_recognition_id: type === 'recognized' ? obj.reagent_id : (obj.best_candidate || ''),
+      original_confidence: obj.confidence,
+    })
+  }
+
+  const handleSubmitCorrection = async (values) => {
+    setSubmittingCorrection(true)
+    try {
+      const b64 = capturedImage.split(',')[1]
+      const blob = await fetch(`data:image/jpeg;base64,${b64}`).then(res => res.blob())
+
+      const formData = new FormData()
+      formData.append('file', blob, 'correction.jpg')
+      formData.append('corrected_reagent_id', values.corrected_reagent_id)
+      formData.append('corrected_reagent_name', values.corrected_reagent_name)
+      if (values.original_recognition_id) {
+        formData.append('original_recognition_id', values.original_recognition_id)
+      }
+      if (values.original_confidence) {
+        formData.append('original_confidence', values.original_confidence)
+      }
+      if (values.notes) {
+        formData.append('notes', values.notes)
+      }
+      formData.append('apply_immediately', values.apply_immediately)
+      formData.append('correction_source', 'multiple_recognize_page')
+
+      const res = await api.submitCorrection(formData)
+      if (res.success) {
+        message.success('纠错提交成功！已自动应用到识别系统')
+        setShowCorrectionModal(false)
+        form.resetFields()
+        setCorrectionObject(null)
+      }
+    } catch (e) {
+      message.error('提交失败：' + (e.response?.data?.detail || e.message))
+    } finally {
+      setSubmittingCorrection(false)
+    }
   }
 
   return (
@@ -396,6 +461,14 @@ export default function MultipleRecognize() {
                         <div style={{ fontSize: 11, color: '#999' }}>
                           位置: [{obj.bbox.join(', ')}]
                         </div>
+                        <Button
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() => handleOpenCorrection(obj, 'recognized')}
+                          style={{ marginTop: 4 }}
+                        >
+                          识别错误？纠错
+                        </Button>
                       </Space>
                     </Card>
                   ))}
@@ -439,6 +512,16 @@ export default function MultipleRecognize() {
                         <div style={{ fontSize: 11, color: '#999' }}>
                           位置: [{obj.bbox.join(', ')}]
                         </div>
+                        <Button
+                          size="small"
+                          type="primary"
+                          danger
+                          icon={<EditOutlined />}
+                          onClick={() => handleOpenCorrection(obj, 'unrecognized')}
+                          style={{ marginTop: 4 }}
+                        >
+                          点击纠错
+                        </Button>
                       </Space>
                     </Card>
                   ))}
@@ -546,6 +629,108 @@ export default function MultipleRecognize() {
           </div>
         </Space>
       </Drawer>
+
+      {/* 纠错弹窗 */}
+      <Modal
+        title="纠错识别结果"
+        open={showCorrectionModal}
+        onCancel={() => {
+          setShowCorrectionModal(false)
+          form.resetFields()
+          setCorrectionObject(null)
+        }}
+        footer={null}
+        width={500}
+      >
+        <Alert
+          message="纠错说明"
+          description="请选择正确的试剂ID，系统将自动将此图片注册到识别引擎中，提升后续识别准确率。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSubmitCorrection}
+        >
+          {capturedImage && (
+            <div style={{ marginBottom: 16, textAlign: 'center' }}>
+              <img
+                src={capturedImage}
+                alt="captured"
+                style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 4 }}
+              />
+              {correctionObject && (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+                  检测区域: [{correctionObject.obj.bbox.join(', ')}]
+                </div>
+              )}
+            </div>
+          )}
+          <Form.Item
+            name="corrected_reagent_id"
+            label="正确的试剂ID"
+            rules={[{ required: true, message: '请选择试剂ID' }]}
+          >
+            <Select
+              showSearch
+              placeholder="选择正确的试剂"
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              options={reagents.map(r => ({ label: `${r.reagent_id} - ${r.reagent_name}`, value: r.reagent_id }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="corrected_reagent_name"
+            label="试剂名称"
+            // rules={[{ required: true, message: '请输入试剂名称' }]}
+          >
+            <Input placeholder="如：乙醇" />
+          </Form.Item>
+          <Form.Item
+            name="original_recognition_id"
+            label="原识别结果（可选）"
+          >
+            <Input placeholder="如：乙醇002" />
+          </Form.Item>
+          {/* <Form.Item
+            name="original_confidence"
+            label="原识别置信度（可选）"
+          >
+            <Input type="number" step="0.01" min="0" max="1" placeholder="0.75" />
+          </Form.Item> */}
+          <Form.Item
+            name="notes"
+            label="备注（可选）"
+          >
+            <Input.TextArea rows={2} placeholder="如：标签模糊导致误识别" />
+          </Form.Item>
+          <Form.Item
+            name="apply_immediately"
+            valuePropName="checked"
+            initialValue={true}
+          >
+            <Select
+              options={[
+                { label: '立即应用到识别系统', value: true },
+                { label: '暂不应用', value: false },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={submittingCorrection}
+              block
+            >
+              提交纠错
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
     </Row>
   )
 }

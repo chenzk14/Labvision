@@ -1,7 +1,7 @@
 // frontend/src/pages/ReagentList.jsx
-import React, { useState, useEffect } from 'react'
-import { Table, Tag, Button, Space, Modal, Descriptions, Image, message, Input, Popconfirm } from 'antd'
-import { EyeOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { Table, Tag, Button, Space, Modal, Descriptions, Image, message, Input, Popconfirm, Upload, Alert, Row, Col } from 'antd'
+import { EyeOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined, CameraOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../services/api'
 
 export default function ReagentList() {
@@ -9,6 +9,13 @@ export default function ReagentList() {
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
   const [searchText, setSearchText] = useState('')
+  const [addImageModal, setAddImageModal] = useState(false)
+  const [cameraActive, setCameraActive] = useState(false)
+  const [capturedImage, setCapturedImage] = useState(null)
+  const [uploadFile, setUploadFile] = useState(null)
+  const [registering, setRegistering] = useState(false)
+  const videoRef = useRef(null)
+  const streamRef = useRef(null)
 
   const loadReagents = async () => {
     setLoading(true)
@@ -84,6 +91,96 @@ export default function ReagentList() {
     setDetail(data)
   }
 
+  const handleOpenAddImage = () => {
+    setAddImageModal(true)
+    setCapturedImage(null)
+    setUploadFile(null)
+    setCameraActive(false)
+  }
+
+  const handleCloseAddImage = () => {
+    setAddImageModal(false)
+    stopCamera()
+    setCapturedImage(null)
+    setUploadFile(null)
+  }
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: 'environment' }
+      })
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        streamRef.current = stream
+        setCameraActive(true)
+      }
+    } catch (err) {
+      message.error('无法访问摄像头：' + err.message)
+    }
+  }
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+      setCameraActive(false)
+    }
+  }
+
+  const capturePhoto = useCallback(() => {
+    if (!videoRef.current) return
+    const canvas = document.createElement('canvas')
+    canvas.width = videoRef.current.videoWidth
+    canvas.height = videoRef.current.videoHeight
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(videoRef.current, 0, 0)
+    canvas.toBlob(blob => {
+      setCapturedImage({ blob, url: canvas.toDataURL('image/jpeg') })
+    }, 'image/jpeg', 0.92)
+  }, [])
+
+  const handleUpload = async ({ file }) => {
+    setUploadFile(file)
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setCapturedImage({ blob: file, url: e.target.result })
+    }
+    reader.readAsDataURL(file)
+    return false
+  }
+
+  const registerImage = async (angle) => {
+    if (!capturedImage) {
+      message.warning('请先拍照或上传图片')
+      return
+    }
+    setRegistering(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', capturedImage.blob, 'capture.jpg')
+      formData.append('angle', angle)
+
+      const res = await api.registerImage(detail.reagent.reagent_id, formData)
+      if (res.success) {
+        message.success(`✅ ${angle} 角度注册成功`)
+        setCapturedImage(null)
+        setUploadFile(null)
+        handleViewDetail(detail.reagent.reagent_id)
+      }
+    } catch (err) {
+      message.error('注册失败：' + (err.response?.data?.detail || err.message))
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  const angleConfig = [
+    { key: 'front', label: '正面', color: '#1890ff', desc: '标签正面朝摄像头' },
+    { key: 'side', label: '侧面', color: '#52c41a', desc: '试剂瓶侧面' },
+    { key: 'top', label: '顶部', color: '#faad14', desc: '从顶部俯拍瓶盖' },
+  ]
+
   const filtered = reagents.filter(r =>
     r.reagent_id.includes(searchText) || r.reagent_name.includes(searchText)
   )
@@ -120,14 +217,14 @@ export default function ReagentList() {
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.reagent_id)}>
             详情
           </Button>
-          <Button 
-            size="small" 
-            danger 
-            icon={<DeleteOutlined />} 
-            onClick={() => handleDelete(record.reagent_id)}
-          >
-            取出
-          </Button>
+          {/*<Button */}
+          {/*  size="small" */}
+          {/*  danger */}
+          {/*  icon={<DeleteOutlined />} */}
+          {/*  onClick={() => handleDelete(record.reagent_id)}*/}
+          {/*>*/}
+          {/*  取出*/}
+          {/*</Button>*/}
           <Popconfirm
             title="永久删除"
             description="此操作将永久删除试剂的所有数据，不可恢复！"
@@ -203,7 +300,17 @@ export default function ReagentList() {
             </Descriptions>
 
             <div style={{ marginTop: 16 }}>
-              <strong>已注册图片 ({detail.images.length}张)</strong>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <strong>已注册图片 ({detail.images.length}张)</strong>
+                <Button 
+                  type="primary" 
+                  size="small" 
+                  icon={<PlusOutlined />}
+                  onClick={handleOpenAddImage}
+                >
+                  添加图片
+                </Button>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                 {detail.images.map(img => (
                   <div key={img.id} style={{ textAlign: 'center' }}>
@@ -220,6 +327,130 @@ export default function ReagentList() {
             </div>
           </>
         )}
+      </Modal>
+
+      {/* 添加图片弹窗 */}
+      <Modal
+        title={`添加图片 - ${detail?.reagent?.reagent_id}`}
+        open={addImageModal}
+        onCancel={handleCloseAddImage}
+        footer={null}
+        width={800}
+      >
+        <Row gutter={24}>
+          <Col span={16}>
+            <div style={{
+              position: 'relative',
+              background: '#000',
+              borderRadius: 8,
+              overflow: 'hidden',
+              marginBottom: 16,
+              minHeight: 320,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{
+                  width: '100%',
+                  display: cameraActive ? 'block' : 'none'
+                }}
+              />
+              {!cameraActive && !capturedImage && (
+                <div style={{ color: '#888', textAlign: 'center' }}>
+                  <CameraOutlined style={{ fontSize: 48, marginBottom: 8 }} />
+                  <div>点击"开启摄像头"或上传图片</div>
+                </div>
+              )}
+              {capturedImage && (
+                <img
+                  src={capturedImage.url}
+                  alt="preview"
+                  style={{ width: '100%', maxHeight: 320, objectFit: 'contain' }}
+                />
+              )}
+            </div>
+
+            <Space style={{ marginBottom: 16, width: '100%' }} wrap>
+              {cameraActive ? (
+                <Space>
+                  <Button
+                    size="large"
+                    onClick={capturePhoto}
+                    icon={<CameraOutlined />}
+                    type="primary"
+                  >
+                    拍照
+                  </Button>
+                  <Button danger onClick={stopCamera}>关闭摄像头</Button>
+                </Space>
+              ) : (
+                <Button 
+                  icon={<CameraOutlined />} 
+                  onClick={startCamera} 
+                  type="primary"
+                  size="large"
+                >
+                  开启摄像头
+                </Button>
+              )}
+              <Upload
+                accept="image/*"
+                showUploadList={false}
+                beforeUpload={handleUpload}
+              >
+                <Button icon={<UploadOutlined />} size="large">上传图片</Button>
+              </Upload>
+            </Space>
+
+            {capturedImage && (
+              <div>
+                <div style={{ marginBottom: 8, fontWeight: 500 }}>选择角度注册：</div>
+                <Space wrap>
+                  {angleConfig.map(cfg => (
+                    <Button
+                      key={cfg.key}
+                      style={{ borderColor: cfg.color, color: cfg.color }}
+                      loading={registering}
+                      onClick={() => registerImage(cfg.key)}
+                    >
+                      注册为{cfg.label}
+                    </Button>
+                  ))}
+                </Space>
+              </div>
+            )}
+
+            <Alert
+              type="info"
+              message="建议：添加不同角度的图片可以提高识别准确率"
+              style={{ marginTop: 16 }}
+            />
+          </Col>
+
+          <Col span={8}>
+            <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8 }}>
+              <h4>已注册图片 ({detail?.images?.length || 0}张)</h4>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {detail?.images?.map(img => (
+                  <div key={img.id} style={{ textAlign: 'center' }}>
+                    <Image
+                      src={`http://localhost:8000${img.path}`}
+                      width={80}
+                      height={80}
+                      style={{ objectFit: 'cover', borderRadius: 4 }}
+                    />
+                    <div><Tag style={{ fontSize: 10 }}>{img.angle}</Tag></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Col>
+        </Row>
       </Modal>
     </div>
   )

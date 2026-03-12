@@ -54,4 +54,25 @@ export const api = {
   // 永久删除试剂
   deleteReagentPermanent: (reagentId) =>
     client.delete(`/api/reagents/${reagentId}/permanent`).then(r => r.data),
+
+  // 纠错管理
+  submitCorrection: (formData) =>
+    client.post('/api/corrections/submit', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }).then(r => r.data),
+
+  getCorrections: (params = {}) =>
+    client.get('/api/corrections', { params }).then(r => r.data),
+
+  applyCorrection: (correctionId) =>
+    client.post(`/api/corrections/apply/${correctionId}`).then(r => r.data),
+
+  batchApplyCorrections: (correctionIds) =>
+    client.post('/api/corrections/batch-apply', correctionIds).then(r => r.data),
+
+  getCorrectionStatistics: () =>
+    client.get('/api/corrections/statistics').then(r => r.data),
+
+  deleteCorrection: (correctionId) =>
+    client.delete(`/api/corrections/${correctionId}`).then(r => r.data),
 }

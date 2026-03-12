@@ -8,12 +8,14 @@ import {
   DatabaseOutlined,
   LineChartOutlined,
   AppstoreOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons'
 import ReagentRegister from './pages/ReagentRegister'
 import ReagentRecognize from './pages/ReagentRecognize'
 import MultipleRecognize from './pages/MultipleRecognize'
 import ReagentList from './pages/ReagentList'
 import Dashboard from './pages/Dashboard'
+import CorrectionManage from './pages/CorrectionManage'
 import './styles/global.css'
 
 const { Header, Sider, Content } = Layout
@@ -21,9 +23,10 @@ const { Header, Sider, Content } = Layout
 const menuItems = [
   { key: 'dashboard', icon: <LineChartOutlined />, label: '系统概览' },
   { key: 'register', icon: <PlusCircleOutlined />, label: '试剂录入' },
-  { key: 'recognize', icon: <SearchOutlined />, label: '单试剂识别' },
+  // { key: 'recognize', icon: <SearchOutlined />, label: '单试剂识别' },
   { key: 'multiple', icon: <AppstoreOutlined />, label: '多试剂检测' },
   { key: 'list', icon: <DatabaseOutlined />, label: '试剂库' },
+  { key: 'correction', icon: <CheckCircleOutlined />, label: '纠错管理' },
 ]
 
 const pageMap = {
@@ -32,6 +35,7 @@ const pageMap = {
   recognize: <ReagentRecognize />,
   multiple: <MultipleRecognize />,
   list: <ReagentList />,
+  correction: <CorrectionManage />,
 }
 
 export default function App() {

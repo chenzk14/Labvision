@@ -13,8 +13,10 @@
 import json
 import pickle
 import time
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
+from datetime import datetime
 
 import numpy as np
 import torch
@@ -24,7 +26,7 @@ from PIL import Image
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
 
-from backend.config import INFERENCE_CONFIG, MODEL_CONFIG, DEVICE
+from backend.config import INFERENCE_CONFIG, MODEL_CONFIG, DEVICE, IMAGES_DIR
 from backend.models.metric_model import EfficientNetEmbedder
 from backend.core.dataset import get_val_transforms
 
@@ -627,6 +629,235 @@ class ReagentRecognitionEngine:
             "success": True,
             "deleted_count": len(to_delete),
             "message": f"已删除试剂 {reagent_id} 的 {len(to_delete)} 个特征向量",
+        }
+
+    def apply_correction(
+            self,
+            image_input,
+            corrected_reagent_id: str,
+            corrected_reagent_name: str,
+            original_recognition_id: Optional[str] = None,
+            original_image_path: Optional[str] = None,
+            save_image: bool = True,
+            correction_source: str = "manual",
+            notes: Optional[str] = None,
+    ) -> Dict:
+        """
+        应用纠错 - 将纠正后的样本注册到FAISS索引
+        
+        Args:
+            image_input: 纠正后的图像
+            corrected_reagent_id: 纠正后的试剂ID
+            corrected_reagent_name: 纠正后的试剂名称
+            original_recognition_id: 原识别结果ID（用于记录）
+            original_image_path: 原识别图片路径
+            save_image: 是否保存纠错图片
+            correction_source: 纠正来源（manual/auto）
+            notes: 纠正备注
+        
+        Returns:
+            应用结果
+        """
+        import os
+        from pathlib import Path
+        
+        # 保存纠错图片
+        corrected_image_path = None
+        if save_image:
+            corrections_dir = Path(IMAGES_DIR) / "corrections"
+            corrections_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = int(time.time() * 1000)
+            filename = f"{corrected_reagent_id}_{timestamp}.jpg"
+            corrected_image_path = str(corrections_dir / filename)
+            
+            if isinstance(image_input, str):
+                shutil.copy(image_input, corrected_image_path)
+            elif isinstance(image_input, np.ndarray):
+                cv2.imwrite(corrected_image_path, image_input)
+            elif isinstance(image_input, Image.Image):
+                image_input.save(corrected_image_path)
+        
+        # 提取嵌入
+        embedding = self.extract_embedding(image_input)
+        
+        # 构建元数据
+        metadata = {
+            "reagent_id": corrected_reagent_id,
+            "reagent_name": corrected_reagent_name,
+            "vector_id": self.faiss_index.total,
+            "timestamp": time.time(),
+            "image_path": corrected_image_path or "",
+            "is_correction": True,
+            "original_recognition_id": original_recognition_id,
+            "correction_source": correction_source,
+            "notes": notes,
+        }
+        
+        # 添加到FAISS索引
+        vid = self.faiss_index.add(embedding, metadata)
+        
+        # 持久化
+        self._save_index()
+        
+        return {
+            "success": True,
+            "reagent_id": corrected_reagent_id,
+            "reagent_name": corrected_reagent_name,
+            "vector_id": vid,
+            "corrected_image_path": corrected_image_path,
+            "message": f"纠错已应用，试剂 {corrected_reagent_id} 的特征向量已添加到索引",
+        }
+
+    def get_correction_statistics(self) -> Dict:
+        """
+        获取纠错统计信息
+        
+        Returns:
+            纠错统计数据
+        """
+        total_vectors = self.faiss_index.total
+        correction_vectors = [
+            m for m in self.faiss_index.id_map
+            if m.get("is_correction", False)
+        ]
+        
+        unique_corrected_ids = set(m["reagent_id"] for m in correction_vectors)
+        correction_sources = {}
+        for m in correction_vectors:
+            source = m.get("correction_source", "unknown")
+            correction_sources[source] = correction_sources.get(source, 0) + 1
+        
+        return {
+            "total_vectors": total_vectors,
+            "correction_count": len(correction_vectors),
+            "correction_ratio": f"{len(correction_vectors) / total_vectors * 100:.2f}%" if total_vectors > 0 else "0%",
+            "unique_corrected_reagents": len(unique_corrected_ids),
+            "correction_sources": correction_sources,
+        }
+
+    def export_corrections_for_training(
+            self,
+            output_dir: str = None,
+            include_original: bool = False,
+    ) -> Dict:
+        """
+        导出纠错样本用于模型重训
+        
+        Args:
+            output_dir: 输出目录（默认为 data/corrections）
+            include_original: 是否包含原始识别错误的图片
+        
+        Returns:
+            导出结果
+        """
+        from pathlib import Path
+        import shutil
+        
+        if output_dir is None:
+            output_dir = Path("data/corrections")
+        else:
+            output_dir = Path(output_dir)
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 获取所有纠错向量
+        correction_vectors = [
+            m for m in self.faiss_index.id_map
+            if m.get("is_correction", False)
+        ]
+        
+        if not correction_vectors:
+            return {
+                "success": False,
+                "exported_count": 0,
+                "message": "没有纠错样本可导出",
+            }
+        
+        exported_count = 0
+        exported_reagents = set()
+        
+        for metadata in correction_vectors:
+            reagent_id = metadata["reagent_id"]
+            image_path = metadata.get("image_path", "")
+            
+            if not image_path or not Path(image_path).exists():
+                print(f"[Engine] 警告: 图片不存在，跳过: {image_path}")
+                continue
+            
+            # 创建试剂目录
+            reagent_dir = output_dir / reagent_id
+            reagent_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 复制图片
+            filename = Path(image_path).name
+            dest_path = reagent_dir / filename
+            shutil.copy(image_path, dest_path)
+            
+            exported_count += 1
+            exported_reagents.add(reagent_id)
+            
+            # 如果需要，也复制原始错误图片
+            if include_original:
+                original_image_path = metadata.get("original_image_path", "")
+                if original_image_path and Path(original_image_path).exists():
+                    original_filename = f"original_{filename}"
+                    original_dest_path = reagent_dir / original_filename
+                    shutil.copy(original_image_path, original_dest_path)
+        
+        # 生成导出报告
+        report_path = output_dir / "export_report.json"
+        import json
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "export_time": datetime.now().isoformat(),
+                "exported_count": exported_count,
+                "exported_reagents": list(exported_reagents),
+                "output_directory": str(output_dir),
+                "include_original": include_original,
+            }, f, ensure_ascii=False, indent=2)
+        
+        return {
+            "success": True,
+            "exported_count": exported_count,
+            "exported_reagents": len(exported_reagents),
+            "output_directory": str(output_dir),
+            "report_path": str(report_path),
+            "message": f"已导出 {exported_count} 个纠错样本到 {output_dir}",
+        }
+
+    def verify_correction_quality(
+            self,
+            reagent_id: str,
+            min_samples: int = 3,
+    ) -> Dict:
+        """
+        验证纠错质量 - 检查某个试剂的纠错样本是否足够用于训练
+        
+        Args:
+            reagent_id: 试剂ID
+            min_samples: 最小样本数
+        
+        Returns:
+            验证结果
+        """
+        correction_vectors = [
+            m for m in self.faiss_index.id_map
+            if m.get("is_correction", False) and m["reagent_id"] == reagent_id
+        ]
+        
+        all_vectors = [
+            m for m in self.faiss_index.id_map
+            if m["reagent_id"] == reagent_id
+        ]
+        
+        return {
+            "reagent_id": reagent_id,
+            "total_samples": len(all_vectors),
+            "correction_samples": len(correction_vectors),
+            "meets_minimum": len(correction_vectors) >= min_samples,
+            "correction_ratio": f"{len(correction_vectors) / len(all_vectors) * 100:.2f}%" if all_vectors else "0%",
+            "ready_for_retraining": len(correction_vectors) >= min_samples,
         }
 
 

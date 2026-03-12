@@ -71,6 +71,36 @@ class RecognitionLog(Base):
     notes = Column(Text, nullable=True)
 
 
+class CorrectionLog(Base):
+    """纠错记录表 - 存储识别错误的纠错信息"""
+    __tablename__ = "correction_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    # 原始识别信息
+    original_recognition_id = Column(String(50), nullable=True)  # 原识别结果ID
+    original_confidence = Column(Float, nullable=True)          # 原识别置信度
+    original_image_path = Column(String(500), nullable=True)    # 原识别图片路径
+    
+    # 纠正信息
+    corrected_reagent_id = Column(String(50), nullable=False, index=True)  # 纠正后的试剂ID
+    corrected_reagent_name = Column(String(100), nullable=False)           # 纠正后的试剂名称
+    corrected_image_path = Column(String(500), nullable=True)              # 纠正后的图片保存路径
+    
+    # 纠正状态
+    is_applied = Column(Boolean, default=False)           # 是否已应用到FAISS索引
+    is_exported = Column(Boolean, default=False)          # 是否已导出用于训练
+    vector_id = Column(Integer, nullable=True)           # 应用后生成的向量ID
+    
+    # 元数据
+    correction_source = Column(String(20), nullable=True)  # 纠正来源：'manual'人工 / 'auto'自动
+    notes = Column(Text, nullable=True)                   # 纠正备注
+    
+    # 关联的识别日志ID
+    recognition_log_id = Column(Integer, nullable=True)
+
+
 # 数据库连接
 async_engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = sessionmaker(

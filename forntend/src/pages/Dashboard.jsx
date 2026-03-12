@@ -129,7 +129,7 @@ export default function Dashboard() {
             </p>
           </Col>
           <Col span={8}>
-            <p><strong>试剂种类：</strong>{status?.unique_reagent_names} 种</p>
+            <p><strong>试剂数量：</strong>{status?.unique_reagent_ids || 0} 种</p>
             <p><strong>服务状态：</strong>
               <Tag color="green">运行中</Tag>
             </p>

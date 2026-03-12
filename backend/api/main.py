@@ -33,7 +33,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from backend.config import IMAGES_DIR, DEVICE
-from backend.core.database import init_db, get_db, Reagent, ReagentImage, RecognitionLog
+from backend.core.database import init_db, get_db, Reagent, ReagentImage, RecognitionLog, CorrectionLog
 from backend.core.recognition_engine import get_engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -105,6 +105,31 @@ class RecognitionResult(BaseModel):
     confidence_pct: Optional[str]
     candidates: List[dict]
     message: str
+
+
+class CorrectionSubmit(BaseModel):
+    corrected_reagent_id: str
+    corrected_reagent_name: str
+    original_recognition_id: Optional[str] = None
+    original_confidence: Optional[float] = None
+    notes: Optional[str] = None
+    apply_immediately: bool = True
+
+
+class CorrectionResponse(BaseModel):
+    id: int
+    timestamp: datetime
+    original_recognition_id: Optional[str]
+    original_confidence: Optional[float]
+    corrected_reagent_id: str
+    corrected_reagent_name: str
+    is_applied: bool
+    is_exported: bool
+    correction_source: Optional[str]
+    notes: Optional[str]
+
+    class Config:
+        from_attributes = True
 
 
 # ===================== 系统状态 =====================
@@ -594,6 +619,311 @@ async def get_recognition_logs(
         }
         for log in logs
     ]
+
+
+# ===================== 纠错管理 =====================
+@app.post("/api/corrections/submit")
+async def submit_correction(
+    file: UploadFile = File(...),
+    corrected_reagent_id: str = Form(...),
+    corrected_reagent_name: str = Form(...),
+    original_recognition_id: Optional[str] = Form(None),
+    original_confidence: Optional[float] = Form(None),
+    notes: Optional[str] = Form(None),
+    apply_immediately: bool = Form(True),
+    correction_source: str = Form("web"),
+    db: AsyncSession = Depends(get_db),
+):
+    """提交纠错
+    
+    当识别错误时，上传正确的图片并指定正确的试剂ID
+    图片会保存到试剂专属文件夹，并创建ReagentImage记录
+    """
+    # 查询试剂是否存在
+    result = await db.execute(
+        select(Reagent).where(Reagent.reagent_id == corrected_reagent_id)
+    )
+    reagent = result.scalar_one_or_none()
+    if not reagent:
+        raise HTTPException(404, f"试剂 '{corrected_reagent_id}' 不存在，请先创建")
+
+    # 保存图片到试剂专属文件夹
+    timestamp = int(time.time() * 1000)
+    save_dir = IMAGES_DIR / corrected_reagent_id
+    save_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{timestamp}_correction.jpg"
+    save_path = save_dir / filename
+
+    content = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(content)
+
+    # 创建纠错记录
+    correction = CorrectionLog(
+        original_recognition_id=original_recognition_id,
+        original_confidence=original_confidence,
+        corrected_reagent_id=corrected_reagent_id,
+        corrected_reagent_name=corrected_reagent_name,
+        corrected_image_path=str(save_path),
+        correction_source=correction_source,
+        notes=notes,
+        is_applied=False,
+    )
+    db.add(correction)
+    await db.commit()
+    await db.refresh(correction)
+
+    # 如果需要立即应用
+    vector_id = None
+    if apply_immediately:
+        engine = get_engine()
+        try:
+            # 读取图片并注册到识别引擎
+            img = cv2.imread(str(save_path))
+            if img is not None:
+                reg_result = engine.register_reagent(
+                    image_input=str(save_path),
+                    reagent_id=corrected_reagent_id,
+                    reagent_name=corrected_reagent_name,
+                    extra_info={
+                        "correction_id": correction.id,
+                        "angle": "correction",
+                    },
+                    image_save_path=str(save_path),
+                )
+                vector_id = reg_result.get("vector_id")
+                
+                # 创建ReagentImage记录
+                img_record = ReagentImage(
+                    reagent_id=corrected_reagent_id,
+                    image_path=str(save_path),
+                    vector_id=vector_id,
+                    angle="correction",
+                )
+                db.add(img_record)
+                
+                # 更新纠错记录
+                await db.execute(
+                    update(CorrectionLog)
+                    .where(CorrectionLog.id == correction.id)
+                    .values(is_applied=True, vector_id=vector_id)
+                )
+                await db.commit()
+        except Exception as e:
+            print(f"[API] 应用纠错失败: {e}")
+
+    return {
+        "success": True,
+        "id": correction.id,
+        "reagent_id": corrected_reagent_id,
+        "vector_id": vector_id,
+        "is_applied": apply_immediately,
+        "message": f"纠错提交成功，已{'应用' if apply_immediately else '保存'}到识别系统",
+    }
+
+
+@app.get("/api/corrections")
+async def get_corrections(
+    db: AsyncSession = Depends(get_db),
+    applied_only: bool = False,
+    limit: int = 50,
+):
+    """获取纠错记录列表"""
+    query = select(CorrectionLog)
+    if applied_only:
+        query = query.where(CorrectionLog.is_applied == True)
+    query = query.order_by(CorrectionLog.timestamp.desc()).limit(limit)
+    
+    result = await db.execute(query)
+    corrections = result.scalars().all()
+    
+    return [
+        {
+            "id": c.id,
+            "timestamp": c.timestamp.isoformat() if c.timestamp else None,
+            "original_recognition_id": c.original_recognition_id,
+            "original_confidence": c.original_confidence,
+            "corrected_reagent_id": c.corrected_reagent_id,
+            "corrected_reagent_name": c.corrected_reagent_name,
+            "is_applied": c.is_applied,
+            "is_exported": c.is_exported,
+            "vector_id": c.vector_id,
+            "correction_source": c.correction_source,
+            "notes": c.notes,
+        }
+        for c in corrections
+    ]
+
+
+@app.post("/api/corrections/apply/{correction_id}")
+async def apply_correction(
+    correction_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """应用单个纠错到识别系统"""
+    result = await db.execute(
+        select(CorrectionLog).where(CorrectionLog.id == correction_id)
+    )
+    correction = result.scalar_one_or_none()
+    
+    if not correction:
+        raise HTTPException(404, f"纠错记录 {correction_id} 不存在")
+    
+    if correction.is_applied:
+        return {"success": True, "message": "该纠错已应用", "vector_id": correction.vector_id}
+    
+    # 应用纠错
+    engine = get_engine()
+    try:
+        img = cv2.imread(correction.corrected_image_path)
+        if img is None:
+            raise HTTPException(400, "无法读取纠错图片")
+        
+        reg_result = engine.register_reagent(
+            image_input=correction.corrected_image_path,
+            reagent_id=correction.corrected_reagent_id,
+            reagent_name=correction.corrected_reagent_name,
+            extra_info={"correction_id": correction.id},
+            image_save_path=correction.corrected_image_path,
+        )
+        vector_id = reg_result.get("vector_id")
+        
+        # 更新状态
+        await db.execute(
+            update(CorrectionLog)
+            .where(CorrectionLog.id == correction_id)
+            .values(is_applied=True, vector_id=vector_id)
+        )
+        await db.commit()
+        
+        return {
+            "success": True,
+            "vector_id": vector_id,
+            "message": "纠错已成功应用到识别系统",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"应用纠错失败: {str(e)}")
+
+
+@app.post("/api/corrections/batch-apply")
+async def batch_apply_corrections(
+    correction_ids: List[int],
+    db: AsyncSession = Depends(get_db),
+):
+    """批量应用纠错"""
+    results = []
+    success_count = 0
+    
+    for cid in correction_ids:
+        try:
+            result = await db.execute(
+                select(CorrectionLog).where(CorrectionLog.id == cid)
+            )
+            correction = result.scalar_one_or_none()
+            
+            if not correction or correction.is_applied:
+                results.append({"correction_id": cid, "success": False, "message": "不存在或已应用"})
+                continue
+            
+            engine = get_engine()
+            img = cv2.imread(correction.corrected_image_path)
+            if img is None:
+                results.append({"correction_id": cid, "success": False, "message": "无法读取图片"})
+                continue
+            
+            reg_result = engine.register_reagent(
+                image_input=correction.corrected_image_path,
+                reagent_id=correction.corrected_reagent_id,
+                reagent_name=correction.corrected_reagent_name,
+                extra_info={"correction_id": correction.id},
+                image_save_path=correction.corrected_image_path,
+            )
+            
+            await db.execute(
+                update(CorrectionLog)
+                .where(CorrectionLog.id == cid)
+                .values(is_applied=True, vector_id=reg_result.get("vector_id"))
+            )
+            
+            success_count += 1
+            results.append({"correction_id": cid, "success": True, "message": "应用成功"})
+        except Exception as e:
+            results.append({"correction_id": cid, "success": False, "message": str(e)})
+    
+    await db.commit()
+    
+    return {
+        "success": True,
+        "total": len(correction_ids),
+        "success_count": success_count,
+        "results": results,
+    }
+
+
+@app.get("/api/corrections/statistics")
+async def get_correction_statistics(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取纠错统计信息"""
+    engine = get_engine()
+    stats = engine.get_stats()
+    
+    # 获取纠错统计
+    result = await db.execute(select(CorrectionLog))
+    corrections = result.scalars().all()
+    
+    total_corrections = len(corrections)
+    applied_corrections = len([c for c in corrections if c.is_applied])
+    unique_reagents = len(set(c.corrected_reagent_id for c in corrections))
+    
+    # 统计来源
+    sources = {}
+    for c in corrections:
+        source = c.correction_source or "unknown"
+        sources[source] = sources.get(source, 0) + 1
+    
+    return {
+        "total_vectors": stats.get("total_vectors", 0),
+        "correction_count": total_corrections,
+        "applied_count": applied_corrections,
+        "correction_ratio": f"{total_corrections / stats.get('total_vectors', 1) * 100:.2f}%" if stats.get("total_vectors", 0) > 0 else "0%",
+        "unique_corrected_reagents": unique_reagents,
+        "correction_sources": sources,
+    }
+
+
+@app.delete("/api/corrections/{correction_id}")
+async def delete_correction(
+    correction_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """删除纠错记录"""
+    result = await db.execute(
+        select(CorrectionLog).where(CorrectionLog.id == correction_id)
+    )
+    correction = result.scalar_one_or_none()
+    
+    if not correction:
+        raise HTTPException(404, f"纠错记录 {correction_id} 不存在")
+    
+    # 删除图片文件
+    if correction.corrected_image_path:
+        img_path = Path(correction.corrected_image_path)
+        if img_path.exists():
+            img_path.unlink()
+    
+    # 从FAISS中删除向量
+    if correction.vector_id is not None:
+        engine = get_engine()
+        engine.delete_vector(correction.vector_id)
+    
+    # 删除数据库记录
+    await db.execute(
+        CorrectionLog.__table__.delete().where(CorrectionLog.id == correction_id)
+    )
+    await db.commit()
+    
+    return {"success": True, "message": f"纠错记录 {correction_id} 已删除"}
 
 
 if __name__ == "__main__":
