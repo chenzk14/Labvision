@@ -1,3 +1,18 @@
+# 试剂识别系统 (Reagent Vision System)
+
+基于深度学习的试剂智能识别系统，支持单物体识别、多物体检测、试剂库管理和纠错学习功能。
+
+## ✨ 核心特性
+
+- 🔍 **智能识别**：基于EfficientNet + ArcFace的细粒度识别
+- 🎯 **多物体检测**：YOLOv8同时识别多个试剂瓶
+- 📚 **试剂库管理**：完整的试剂录入、查询、删除功能
+- 🔄 **纠错学习**：持续学习机制，识别错误可人工纠错
+- 📊 **实时监控**：识别日志、统计分析、系统状态监控
+- 🚀 **快速部署**：一键部署包，支持离线运行
+
+---
+
 ## 🛠️ 环境配置
 
 ### 1. 创建Conda环境
@@ -25,19 +40,6 @@ pip install ultralytics
 # 前端依赖（可选，如果需要开发前端）
 cd forntend
 npm install
-
-# 后端启动
-python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
-
-# 训练曲线
-tensorboard --logdir=logs
-
-Loss/train - 训练损失（应该持续下降）
-Loss/val - 验证损失（不应持续上升）
-Accuracy/train - 训练准确率（应该持续上升）
-Accuracy/val - 验证准确率（应该稳定上升）
-Learning Rate - 学习率变化
-
 ```
 
 ### 4. 验证安装
@@ -52,18 +54,22 @@ python -c "import ultralytics; print('YOLOv8 installed successfully')"
 
 ### 目录结构
 ```
-data/images/
-├── 乙醇001/
-│   ├── 1.jpg
-│   ├── 2.jpg
-│   └── ...
-├── 乙醇002/
-│   ├── 1.jpg
-│   └── ...
-├── 钠/
-│   ├── 1.png
-│   └── ...
-└── ...
+data/
+├── images/                     # 试剂图片数据集
+│   ├── 乙醇001/
+│   │   ├── 1773279184217_front.jpg
+│   │   └── ...
+│   ├── 乙醇002/
+│   │   ├── 1773279742602_front.jpg
+│   │   └── ...
+│   └── corrections/           # 纠错图片
+│       └── ...
+├── embeddings/                 # FAISS索引文件
+│   ├── reagent.index
+│   └── metadata.json
+├── db/                         # SQLite数据库
+│   └── reagent.db
+└── logs/                       # 训练日志
 ```
 
 ### 数据要求
@@ -106,6 +112,18 @@ python scripts/train.py
 - 25张图片，5个类别：10-30分钟
 - 100张图片，10个类别：30-60分钟
 
+### 训练监控
+```bash
+tensorboard --logdir=logs
+```
+
+监控指标：
+- Loss/train - 训练损失（应该持续下降）
+- Loss/val - 验证损失（不应持续上升）
+- Accuracy/train - 训练准确率（应该持续上升）
+- Accuracy/val - 验证准确率（应该稳定上升）
+- Learning Rate - 学习率变化
+
 ---
 
 ## 🔍 构建索引
@@ -126,19 +144,31 @@ python scripts/build_index.py
 POST /api/reagents/{reagent_id}/register-image
 ```
 
+### 摄像头测试
+```bash
+python scripts/camera_test.py
+```
+
 ---
 
 ## 🚀 启动服务
 
-### 后端API服务
+### 方式一：分别启动
+
+**后端API服务**
 ```bash
 python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 前端服务
+**前端服务**
 ```bash
 cd forntend
 npm start
+```
+
+### 方式二：使用启动脚本（Windows）
+```bash
+start.bat
 ```
 
 ### 访问地址
@@ -154,31 +184,49 @@ npm start
 - 录入试剂基本信息（名称、CAS号、批次等）
 - 拍摄多角度图片并注册
 - 支持多张图片注册
+- 实时预览已注册图片
 
-### 2. 实时识别（单物体）
-- 摄像头实时识别
-- 自动识别模式
-- 识别历史记录
-
-### 3. 多试剂检测 
+### 2. 多试剂检测 
 - 同时识别图片中的多个试剂瓶
 - 支持摄像头实时检测
 - 支持图片上传批量检测
 - 自动绘制检测框和标签
 - 可调整检测阈值
 
-### 4. 试剂库管理
+### 3. 试剂库管理
 - 查看所有已注册试剂
 - 试剂详情和图片列表
-- 标记试剂为取出状态
+- 添加/删除试剂图片
+- 永久删除试剂
+- 搜索过滤功能
 
-### 5. 识别日志
+### 4. 识别日志
 - 查看所有识别记录
 - 识别统计信息
+- 按时间/试剂筛选
+
+### 5. 纠错管理 ⭐ 新功能
+- 摄像头纠错：实时拍摄并提交纠错
+- 上传纠错：上传已有的正确图片
+- 查看纠错记录
+- 应用纠错：将纠错样本应用到识别系统
+- 批量应用：一次性应用所有未应用的纠错
+- 纠错统计：查看纠错效果
+
+### 6. 系统监控
+- 已注册试剂数量
+- 图片向量数量
+- 注册记录统计
+- 实时数据刷新
 
 ---
 
 ## 📡 API接口
+
+### 系统状态
+```bash
+GET /api/status
+```
 
 ### 单物体识别
 ```bash
@@ -192,7 +240,7 @@ Content-Type: application/json
 {"image": "base64string"}
 ```
 
-### 多物体识别 ⭐ 新接口
+### 多物体识别
 ```bash
 # 文件上传
 POST /api/recognize/multiple
@@ -213,12 +261,52 @@ POST /api/reagents
 # 注册图片
 POST /api/reagents/{reagent_id}/register-image
 
-# 查询试剂
+# 查询试剂列表
 GET /api/reagents
+
+# 查询试剂详情
 GET /api/reagents/{reagent_id}
 
-# 删除试剂
+# 删除试剂（软删除）
 DELETE /api/reagents/{reagent_id}
+
+# 永久删除试剂
+DELETE /api/reagents/{reagent_id}/permanent
+
+# 删除试剂图片
+DELETE /api/reagents/{reagent_id}/images/{image_id}
+```
+
+### 纠错管理
+```bash
+# 提交纠错
+POST /api/corrections/submit
+参数：file, corrected_reagent_id, corrected_reagent_name, notes, apply_immediately
+
+# 获取纠错列表
+GET /api/corrections
+
+# 获取纠错统计
+GET /api/corrections/statistics
+
+# 应用单个纠错
+POST /api/corrections/apply/{correction_id}
+
+# 批量应用纠错
+POST /api/corrections/batch-apply
+参数：correction_ids (数组)
+
+# 删除纠错
+DELETE /api/corrections/{correction_id}
+```
+
+### 识别日志
+```bash
+# 获取识别日志
+GET /api/recognitions
+
+# 获取识别统计
+GET /api/recognitions/statistics
 ```
 
 ---
@@ -230,7 +318,8 @@ reagent-vision/
 ├── backend/
 │   ├── config.py                    ← 所有超参数配置
 │   ├── models/
-│   │   └── metric_model.py          ← EfficientNet + ArcFace 核心模型
+│   │   ├── metric_model.py          ← EfficientNet + ArcFace 核心模型
+│   │   └── foundation_embedder.py   ← DINOv2/CLIP 基础模型
 │   ├── core/
 │   │   ├── dataset.py               ← 数据集 + 增强策略
 │   │   ├── trainer.py               ← 训练引擎（混合精度/早停）
@@ -244,9 +333,10 @@ reagent-vision/
 │   │   ├── pages/
 │   │   │   ├── Dashboard.jsx        ← 系统概览
 │   │   │   ├── ReagentRegister.jsx  ← 试剂录入界面
-│   │   │   ├── ReagentRecognize.jsx ← 实时识别界面
-│   │   │   ├── MultipleRecognize.jsx ← 多试剂检测界面 ⭐
-│   │   │   └── ReagentList.jsx     ← 试剂库管理
+│   │   │   ├── ReagentRecognize.jsx ← 实时识别界面（单试剂）
+│   │   │   ├── MultipleRecognize.jsx ← 多试剂检测界面
+│   │   │   ├── ReagentList.jsx      ← 试剂库管理
+│   │   │   └── CorrectionManage.jsx ← 纠错管理界面 ⭐
 │   │   ├── services/
 │   │   │   └── api.js              ← API服务封装
 │   │   ├── styles/
@@ -257,18 +347,34 @@ reagent-vision/
 ├── scripts/
 │   ├── train.py                    ← 训练启动
 │   ├── build_index.py              ← 构建FAISS索引
-│   └── camera_test.py              ← 摄像头测试
+│   ├── camera_test.py              ← 摄像头测试
+│   ├── correction_manager.py      ← 纠错管理脚本 ⭐
+│   ├── package_model.py            ← 模型打包脚本
+│   └── test_package.py             ← 部署包测试脚本
 ├── data/
 │   ├── images/                     ← 试剂图片数据集
 │   ├── embeddings/                 ← FAISS索引文件
 │   ├── db/                         ← SQLite数据库
 │   └── logs/                       ← 训练日志
 ├── saved_models/                   ← 训练好的模型
+├── deploy_package/                 ← 部署包 ⭐
+│   ├── models/
+│   │   └── best_model.pth
+│   ├── embeddings/
+│   │   ├── reagent.index
+│   │   └── metadata.json
+│   ├── config/
+│   │   ├── config.json
+│   │   └── class_mapping.json
+│   ├── inference.py                ← 推理脚本
+│   ├── requirements.txt
+│   └── README.md
 ├── docs/
-│   └── TUTORIAL.md                 ← 手把手教程
-├── example.txt                      ← 本文件
-├── Environment.yml                  ← Conda环境配置
-└── start.bat                       ← Windows启动脚本
+│   ├── TUTORIAL.md                 ← 手把手教程
+│   └── correction_workflow.md       ← 纠错系统使用指南 ⭐
+├── Environment.yml                 ← Conda环境配置
+├── start.bat                       ← Windows启动脚本
+└── README.md                       ← 本文件
 ```
 
 ---
@@ -295,11 +401,141 @@ INFERENCE_CONFIG = {
 ### 自定义数据增强
 在backend/core/dataset.py中修改增强策略。
 
+## 📦 部署包使用
+
+### 打包模型
+```bash
+python scripts/package_model.py
+```
+
+### 测试部署包
+```bash
+python scripts/test_package.py
+```
+
+### 部署包结构
+```
+deploy_package/
+├── models/
+│   └── best_model.pth
+├── embeddings/
+│   ├── reagent.index
+│   └── metadata.json
+├── config/
+│   ├── config.json
+│   └── class_mapping.json
+├── inference.py
+├── requirements.txt
+└── README.md
+```
+
+### 离线部署
+1. 将 `deploy_package` 目录复制到目标机器
+2. 安装依赖：`pip install -r requirements.txt`
+3. 运行推理：`python inference.py`
+
+## 🛠️ 纠错系统
+
+### 使用纠错管理脚本
+```bash
+# 查看纠错统计
+python scripts/correction_manager.py --action stats
+
+# 查看所有纠错记录
+python scripts/correction_manager.py --action list
+
+# 应用所有未应用的纠错
+python scripts/correction_manager.py --action apply --all
+
+# 应用指定纠错ID
+python scripts/correction_manager.py --action apply --id 1
+
+# 摄像头纠错模式
+python scripts/correction_manager.py --action camera --camera 0
+
+# 导出纠错样本用于训练
+python scripts/correction_manager.py --action export --output data/corrections
+
+# 验证纠错质量
+python scripts/correction_manager.py --action verify --reagent_id 乙醇001
+```
+
+### 纠错工作流程
+1. **发现识别错误**：在识别过程中发现系统错误识别
+2. **提交纠错**：通过摄像头或上传方式提交正确的样本
+3. **应用纠错**：将纠错样本应用到识别系统
+4. **持续优化**：系统会自动学习，提升识别准确率
+
+## 🔍 故障排查
+
+### 常见问题
+
+**1. CUDA不可用**
+```bash
+# 检查CUDA版本
+nvidia-smi
+
+# 重新安装PyTorch
+pip uninstall torch torchvision
+pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+```
+
+**2. 摄像头无法开启**
+```bash
+# 检查摄像头权限
+# Windows：设置 > 隐闲 > 相机
+# Linux：sudo chmod 666 /dev/video0
+```
+
+**3. FAISS索引构建失败**
+```bash
+# 检查图片路径是否正确
+# 确保图片格式支持（jpg, png）
+# 检查图片是否损坏
+```
+
+**4. 识别准确率低**
+- 增加训练数据量
+- 调整数据增强策略
+- 尝试不同的模型backbone
+- 使用纠错系统持续优化
+
+**5. 纠错图片不显示**
+- 确保纠错已成功应用
+- 刷新试剂详情页面
+- 检查数据库中的ReagentImage记录
+
+### 日志查看
+```bash
+# 后端日志
+# 直接查看终端输出
+
+# 前端日志
+# 打开浏览器开发者工具 > Console
+
+# 训练日志
+tensorboard --logdir logs
+```
+
 ---
 
 ## 📝 更新日志
 
-### v2.0 (最新)
+### v2.1 (最新)
+- ✨ 新增纠错管理系统
+  - 摄像头纠错功能
+  - 上传纠错功能
+  - 批量应用纠错
+  - 纠错统计和验证
+- 🐛 修复应用纠错后图片不显示在试剂详情的问题
+- 🐛 修复删除纠错记录时的数据一致性问题
+- 📝 完善纠错系统文档
+- 📦 新增部署包功能
+  - 模型打包脚本
+  - 离线部署支持
+  - 部署包测试工具
+
+### v2.0
 - ✨ 新增多试剂检测功能（YOLOv8）
 - ✨ 新增多物体识别API接口
 - ✨ 新增多试剂检测前端页面
