@@ -26,6 +26,15 @@ npm install
 # 后端启动
 python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 
+# 训练曲线
+tensorboard --logdir=logs
+
+Loss/train - 训练损失（应该持续下降）
+Loss/val - 验证损失（不应持续上升）
+Accuracy/train - 训练准确率（应该持续上升）
+Accuracy/val - 验证准确率（应该稳定上升）
+Learning Rate - 学习率变化
+
 ```
 
 ### 4. 验证安装
