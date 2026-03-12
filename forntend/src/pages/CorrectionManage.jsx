@@ -365,12 +365,12 @@ export default function CorrectionManage() {
             >
               摄像头纠错
             </Button>
-            <Button
-              icon={<UploadOutlined />}
-              onClick={() => setShowSubmitModal(true)}
-            >
-              上传纠错
-            </Button>
+            {/*<Button*/}
+            {/*  icon={<UploadOutlined />}*/}
+            {/*  onClick={() => setShowSubmitModal(true)}*/}
+            {/*>*/}
+            {/*  上传纠错*/}
+            {/*</Button>*/}
             <Button
               icon={<CheckOutlined />}
               onClick={handleBatchApply}
@@ -380,23 +380,23 @@ export default function CorrectionManage() {
           </Space>
         }
       >
-        <Alert
-          message="纠错系统说明"
-          description={
-            <div>
-              <p>当识别系统错误识别试剂时，可以通过纠错功能提交正确的样本：</p>
-              <ul>
-                <li><strong>摄像头纠错：</strong>实时拍摄并提交纠错</li>
-                <li><strong>上传纠错：</strong>上传已有的正确图片</li>
-                <li><strong>应用纠错：</strong>将纠错样本应用到识别系统，提升识别准确率</li>
-                <li><strong>批量应用：</strong>一次性应用所有未应用的纠错</li>
-              </ul>
-            </div>
-          }
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
+        {/*<Alert*/}
+        {/*  message="纠错系统说明"*/}
+        {/*  description={*/}
+        {/*    <div>*/}
+        {/*      <p>当识别系统错误识别试剂时，可以通过纠错功能提交正确的样本：</p>*/}
+        {/*      <ul>*/}
+        {/*        <li><strong>摄像头纠错：</strong>实时拍摄并提交纠错</li>*/}
+        {/*        <li><strong>上传纠错：</strong>上传已有的正确图片</li>*/}
+        {/*        <li><strong>应用纠错：</strong>将纠错样本应用到识别系统，提升识别准确率</li>*/}
+        {/*        <li><strong>批量应用：</strong>一次性应用所有未应用的纠错</li>*/}
+        {/*      </ul>*/}
+        {/*    </div>*/}
+        {/*  }*/}
+        {/*  type="info"*/}
+        {/*  showIcon*/}
+        {/*  style={{ marginBottom: 16 }}*/}
+        {/*/>*/}
 
         <Table
           columns={columns}

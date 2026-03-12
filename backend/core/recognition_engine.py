@@ -707,6 +707,64 @@ class ReagentRecognitionEngine:
             "message": f"已删除试剂 {reagent_id} 的 {len(to_delete)} 个特征向量",
         }
 
+    def delete_vector(self, vector_id: int) -> Dict:
+        """
+        删除单个特征向量
+
+        Args:
+            vector_id: 向量ID（在注册时分配的唯一ID）
+
+        Returns:
+            删除结果
+        """
+        if self.faiss_index.total == 0:
+            return {
+                "success": True,
+                "deleted_count": 0,
+                "message": "索引为空",
+            }
+
+        # 找到对应vector_id的向量索引
+        target_index = None
+        for i, metadata in enumerate(self.faiss_index.id_map):
+            if metadata.get("vector_id") == vector_id:
+                target_index = i
+                break
+
+        if target_index is None:
+            return {
+                "success": True,
+                "deleted_count": 0,
+                "message": f"未找到vector_id为 {vector_id} 的特征向量",
+            }
+
+        # 重建索引（排除要删除的向量）
+        new_id_map = []
+        new_index = faiss.IndexFlatIP(self.embedding_dim)
+        
+        # 重新添加未被删除的向量
+        for i, metadata in enumerate(self.faiss_index.id_map):
+            if i != target_index:
+                # 从旧索引中重建向量
+                vec = self.faiss_index.index.reconstruct(i)
+                new_index.add(vec.reshape(1, -1))
+                new_id_map.append(metadata)
+        
+        self.faiss_index.index = new_index
+        self.faiss_index.id_map = new_id_map
+        
+        # 持久化
+        self._save_index()
+
+        print(f"[Engine] 已删除 vector_id={vector_id} 的特征向量")
+        print(f"[Engine] 剩余特征向量: {self.faiss_index.total}")
+
+        return {
+            "success": True,
+            "deleted_count": 1,
+            "message": f"已删除 vector_id={vector_id} 的特征向量",
+        }
+
     def apply_correction(
             self,
             image_input,

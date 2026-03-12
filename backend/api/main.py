@@ -700,7 +700,7 @@ async def submit_correction(
         engine = get_engine()
         try:
             # 读取图片并注册到识别引擎
-            img = cv2.imread(str(save_path))
+            img = cv2.imdecode(np.fromfile(str(save_path), dtype=np.uint8), cv2.IMREAD_COLOR)
             if img is not None:
                 reg_result = engine.register_reagent(
                     image_input=str(save_path),
@@ -814,6 +814,7 @@ async def get_corrections(
             "original_confidence": c.original_confidence,
             "corrected_reagent_id": c.corrected_reagent_id,
             "corrected_reagent_name": c.corrected_reagent_name,
+            "corrected_image_path": c.corrected_image_path,
             "is_applied": c.is_applied,
             "is_exported": c.is_exported,
             "vector_id": c.vector_id,
@@ -844,9 +845,24 @@ async def apply_correction(
     # 应用纠错
     engine = get_engine()
     try:
-        img = cv2.imread(correction.corrected_image_path)
+        if not correction.corrected_image_path:
+            raise HTTPException(400, "纠错记录缺少图片路径，无法应用。请重新提交纠错。")
+        
+        # 检查文件是否存在
+        from pathlib import Path
+        img_path = Path(correction.corrected_image_path)
+        if not img_path.exists():
+            print(f"[API] 纠错图片文件不存在: {correction.corrected_image_path}")
+            raise HTTPException(400, f"纠错图片文件不存在: {correction.corrected_image_path}")
+        
+        if not img_path.is_file():
+            print(f"[API] 纠错路径不是文件: {correction.corrected_image_path}")
+            raise HTTPException(400, f"纠错路径不是文件: {correction.corrected_image_path}")
+        
+        img = cv2.imdecode(np.fromfile(correction.corrected_image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
         if img is None:
-            raise HTTPException(400, "无法读取纠错图片")
+            print(f"[API] cv2.imdecode返回None，文件可能损坏或格式不支持: {correction.corrected_image_path}")
+            raise HTTPException(400, f"无法读取纠错图片，文件可能损坏或格式不支持: {correction.corrected_image_path}")
         
         reg_result = engine.register_reagent(
             image_input=correction.corrected_image_path,
@@ -857,7 +873,23 @@ async def apply_correction(
         )
         vector_id = reg_result.get("vector_id")
         
-        # 更新状态
+        # 在ReagentImage表中创建记录，使纠错图片显示在试剂详情中
+        img_record = ReagentImage(
+            reagent_id=correction.corrected_reagent_id,
+            image_path=correction.corrected_image_path,
+            vector_id=vector_id,
+            angle="correction",
+        )
+        db.add(img_record)
+        
+        # 更新试剂的图片计数
+        await db.execute(
+            update(Reagent)
+            .where(Reagent.reagent_id == correction.corrected_reagent_id)
+            .values(image_count=Reagent.image_count + 1)
+        )
+        
+        # 更新纠错状态
         await db.execute(
             update(CorrectionLog)
             .where(CorrectionLog.id == correction_id)
@@ -895,9 +927,17 @@ async def batch_apply_corrections(
                 continue
             
             engine = get_engine()
-            img = cv2.imread(correction.corrected_image_path)
+            
+            # 检查文件是否存在
+            from pathlib import Path
+            img_path = Path(correction.corrected_image_path)
+            if not correction.corrected_image_path or not img_path.exists():
+                results.append({"correction_id": cid, "success": False, "message": f"图片文件不存在: {correction.corrected_image_path}"})
+                continue
+            
+            img = cv2.imdecode(np.fromfile(correction.corrected_image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
             if img is None:
-                results.append({"correction_id": cid, "success": False, "message": "无法读取图片"})
+                results.append({"correction_id": cid, "success": False, "message": f"无法读取图片(可能损坏): {correction.corrected_image_path}"})
                 continue
             
             reg_result = engine.register_reagent(
@@ -907,11 +947,29 @@ async def batch_apply_corrections(
                 extra_info={"correction_id": correction.id},
                 image_save_path=correction.corrected_image_path,
             )
+            vector_id = reg_result.get("vector_id")
             
+            # 在ReagentImage表中创建记录，使纠错图片显示在试剂详情中
+            img_record = ReagentImage(
+                reagent_id=correction.corrected_reagent_id,
+                image_path=correction.corrected_image_path,
+                vector_id=vector_id,
+                angle="correction",
+            )
+            db.add(img_record)
+            
+            # 更新试剂的图片计数
+            await db.execute(
+                update(Reagent)
+                .where(Reagent.reagent_id == correction.corrected_reagent_id)
+                .values(image_count=Reagent.image_count + 1)
+            )
+            
+            # 更新纠错状态
             await db.execute(
                 update(CorrectionLog)
                 .where(CorrectionLog.id == cid)
-                .values(is_applied=True, vector_id=reg_result.get("vector_id"))
+                .values(is_applied=True, vector_id=vector_id)
             )
             
             success_count += 1
@@ -986,7 +1044,20 @@ async def delete_correction(
         engine = get_engine()
         engine.delete_vector(correction.vector_id)
     
-    # 删除数据库记录
+    # 删除ReagentImage表中的对应记录
+    if correction.vector_id is not None:
+        await db.execute(
+            ReagentImage.__table__.delete().where(ReagentImage.vector_id == correction.vector_id)
+        )
+    
+    # 更新试剂的图片计数
+    await db.execute(
+        update(Reagent)
+        .where(Reagent.reagent_id == correction.corrected_reagent_id)
+        .values(image_count=Reagent.image_count - 1)
+    )
+    
+    # 删除纠错记录
     await db.execute(
         CorrectionLog.__table__.delete().where(CorrectionLog.id == correction_id)
     )
