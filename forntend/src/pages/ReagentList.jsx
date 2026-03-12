@@ -91,6 +91,18 @@ export default function ReagentList() {
     setDetail(data)
   }
 
+  const handleDeleteImage = async (imgId) => {
+    if (!detail?.reagent?.reagent_id) return
+    try {
+      await api.deleteReagentImage(detail.reagent.reagent_id, imgId)
+      message.success('图片已删除，并已更新检索索引')
+      await handleViewDetail(detail.reagent.reagent_id)
+      loadReagents()
+    } catch (e) {
+      message.error('删除失败：' + (e.response?.data?.detail || e.message))
+    }
+  }
+
   const handleOpenAddImage = () => {
     setAddImageModal(true)
     setCapturedImage(null)
@@ -321,6 +333,18 @@ export default function ReagentList() {
                       style={{ objectFit: 'cover', borderRadius: 4 }}
                     />
                     <div><Tag>{img.angle}</Tag></div>
+                    <div style={{ marginTop: 4 }}>
+                      <Popconfirm
+                        title="确认删除这张图片？"
+                        description="删除后会自动更新检索索引，识别结果会立即生效。"
+                        okText="删除"
+                        okType="danger"
+                        cancelText="取消"
+                        onConfirm={() => handleDeleteImage(img.id)}
+                      >
+                        <Button danger size="small" icon={<DeleteOutlined />}>删除</Button>
+                      </Popconfirm>
+                    </div>
                   </div>
                 ))}
               </div>

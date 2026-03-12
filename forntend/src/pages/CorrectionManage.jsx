@@ -12,6 +12,7 @@ import {
   WarningOutlined, InfoCircleOutlined, FileImageOutlined,
 } from '@ant-design/icons'
 import { api } from '../services/api'
+import ImageCropper from '../components/ImageCropper'
 
 export default function CorrectionManage() {
   const [corrections, setCorrections] = useState([])
@@ -24,6 +25,7 @@ export default function CorrectionManage() {
   const [cameraActive, setCameraActive] = useState(false)
   const [capturedImage, setCapturedImage] = useState(null)
   const [reagents, setReagents] = useState([])
+  const [cropPixels, setCropPixels] = useState(null)
 
   const videoRef = useRef(null)
   const streamRef = useRef(null)
@@ -97,6 +99,7 @@ export default function CorrectionManage() {
 
     canvas.toBlob(blob => {
       setCapturedImage({ blob, url: b64 })
+      setCropPixels(null)
     }, 'image/jpeg', 0.92)
   }
 
@@ -104,6 +107,7 @@ export default function CorrectionManage() {
     const reader = new FileReader()
     reader.onload = (e) => {
       setCapturedImage({ blob: file, url: e.target.result })
+      setCropPixels(null)
     }
     reader.readAsDataURL(file)
     return false
@@ -121,6 +125,12 @@ export default function CorrectionManage() {
       formData.append('file', capturedImage.blob, 'correction.jpg')
       formData.append('corrected_reagent_id', values.corrected_reagent_id)
       formData.append('corrected_reagent_name', values.corrected_reagent_name)
+      if (cropPixels) {
+        formData.append('crop_x1', cropPixels.x1)
+        formData.append('crop_y1', cropPixels.y1)
+        formData.append('crop_x2', cropPixels.x2)
+        formData.append('crop_y2', cropPixels.y2)
+      }
       if (values.original_recognition_id) {
         formData.append('original_recognition_id', values.original_recognition_id)
       }
@@ -139,6 +149,7 @@ export default function CorrectionManage() {
         setShowSubmitModal(false)
         setShowCameraModal(false)
         setCapturedImage(null)
+        setCropPixels(null)
         form.resetFields()
         loadCorrections()
         loadStats()
@@ -436,10 +447,10 @@ export default function CorrectionManage() {
                   </div>
                 )}
                 {capturedImage && (
-                  <img
+                  <ImageCropper
                     src={capturedImage.url}
-                    alt="captured"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    height={260}
+                    onChange={(c) => setCropPixels(c)}
                   />
                 )}
               </div>
@@ -476,24 +487,27 @@ export default function CorrectionManage() {
               >
                 <Form.Item
                   name="corrected_reagent_id"
-                  label="正确的试剂ID"
-                  rules={[{ required: true, message: '请输入试剂ID' }]}
+                  label="正确的试剂名称"
+                  rules={[{ required: true, message: '请选择试剂' }]}
                 >
                   <Select
                     showSearch
-                    placeholder="选择或输入试剂ID"
+                    placeholder="按名称搜索/选择"
                     filterOption={(input, option) =>
                       (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                     }
-                    options={reagents.map(r => ({ label: `${r.reagent_id} - ${r.reagent_name}`, value: r.reagent_id }))}
+                    options={reagents.map(r => ({ label: r.reagent_name, value: r.reagent_id }))}
+                    onChange={(rid) => {
+                      const r = reagents.find(x => x.reagent_id === rid)
+                      form.setFieldsValue({ corrected_reagent_name: r?.reagent_name || '' })
+                    }}
                   />
                 </Form.Item>
                 <Form.Item
                   name="corrected_reagent_name"
-                  label="试剂名称"
-                  rules={[{ required: true, message: '请输入试剂名称' }]}
+                  hidden
                 >
-                  <Input placeholder="如：乙醇" />
+                  <Input />
                 </Form.Item>
                 <Form.Item
                   name="original_recognition_id"
@@ -564,34 +578,37 @@ export default function CorrectionManage() {
             </Upload>
             {capturedImage && (
               <div style={{ marginTop: 12 }}>
-                <img
+                <ImageCropper
                   src={capturedImage.url}
-                  alt="preview"
-                  style={{ width: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 4 }}
+                  height={240}
+                  onChange={(c) => setCropPixels(c)}
                 />
               </div>
             )}
           </Form.Item>
           <Form.Item
             name="corrected_reagent_id"
-            label="正确的试剂ID"
-            rules={[{ required: true, message: '请输入试剂ID' }]}
+            label="正确的试剂名称"
+            rules={[{ required: true, message: '请选择试剂' }]}
           >
             <Select
               showSearch
-              placeholder="选择或输入试剂ID"
+              placeholder="按名称搜索/选择"
               filterOption={(input, option) =>
                 (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
               }
-              options={reagents.map(r => ({ label: `${r.reagent_id} - ${r.reagent_name}`, value: r.reagent_id }))}
+              options={reagents.map(r => ({ label: r.reagent_name, value: r.reagent_id }))}
+              onChange={(rid) => {
+                const r = reagents.find(x => x.reagent_id === rid)
+                form.setFieldsValue({ corrected_reagent_name: r?.reagent_name || '' })
+              }}
             />
           </Form.Item>
           <Form.Item
             name="corrected_reagent_name"
-            label="试剂名称"
-            rules={[{ required: true, message: '请输入试剂名称' }]}
+            hidden
           >
-            <Input placeholder="如：乙醇" />
+            <Input />
           </Form.Item>
           <Form.Item
             name="original_recognition_id"

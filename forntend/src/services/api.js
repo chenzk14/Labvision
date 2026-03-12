@@ -17,6 +17,8 @@ export const api = {
   listReagents: () => client.get('/api/reagents').then(r => r.data),
   getReagent: (id) => client.get(`/api/reagents/${id}`).then(r => r.data),
   deleteReagent: (id) => client.delete(`/api/reagents/${id}`).then(r => r.data),
+  deleteReagentImage: (reagentId, imageId) =>
+    client.delete(`/api/reagents/${reagentId}/images/${imageId}`).then(r => r.data),
 
   // 图片注册
   registerImage: (reagentId, formData) =>

@@ -34,7 +34,7 @@ async def main():
     
     # 获取数据库会话
     async for db in get_db():
-        engine.rebuild_index_from_images(args.data_dir, db=db)
+        await engine.rebuild_index_from_images(args.data_dir, db=db)
         break
 
     stats = engine.get_stats()

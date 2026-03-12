@@ -28,6 +28,7 @@ import albumentations as A
 
 from backend.config import INFERENCE_CONFIG, MODEL_CONFIG, DEVICE, IMAGES_DIR
 from backend.models.metric_model import EfficientNetEmbedder
+from backend.models.foundation_embedder import create_foundation_embedder
 from backend.core.dataset import get_val_transforms
 
 
@@ -127,15 +128,21 @@ class ReagentRecognitionEngine:
     """
 
     def __init__(self):
-        self.embedding_dim = MODEL_CONFIG["embedding_dim"]
+        self.feature_extractor = (MODEL_CONFIG.get("feature_extractor") or "efficientnet").lower().strip()
         self.img_size = MODEL_CONFIG["img_size"]
         self.threshold = INFERENCE_CONFIG["similarity_threshold"]
 
         # 初始化嵌入提取器
         self.embedder = None
+        self.model_id = None
+
+        # 预处理：默认沿用 albumentations（efficientnet）
         self.transform = get_val_transforms(self.img_size)
+        self.preprocess_mode = "albumentations"
 
         # FAISS索引
+        # embedding_dim 可能由基础模型决定（dinov2/clip）
+        self.embedding_dim = MODEL_CONFIG["embedding_dim"]
         self.faiss_index = FAISSIndex(self.embedding_dim)
 
         # 加载模型和索引
@@ -144,7 +151,27 @@ class ReagentRecognitionEngine:
 
     def _load_model(self):
         """加载训练好的模型"""
+        if self.feature_extractor in ("dinov2", "clip"):
+            bundle = create_foundation_embedder(
+                self.feature_extractor,
+                dinov2_model_name=MODEL_CONFIG.get("dinov2_model_name", "facebook/dinov2-base"),
+                clip_model_name=MODEL_CONFIG.get("clip_model_name", "openai/clip-vit-base-patch32"),
+                device=DEVICE,
+            )
+            self.embedder = bundle.model
+            self.embedding_dim = bundle.embedding_dim
+            self.model_id = bundle.model_id
+            self.preprocess_mode = "foundation"
+            self.foundation_preprocess = bundle.preprocess
+
+            # 重置 FAISS 维度（避免沿用旧配置）
+            self.faiss_index = FAISSIndex(self.embedding_dim)
+            print(f"[Engine] 使用基础模型特征：{self.model_id} (dim={self.embedding_dim})")
+            return
+
+        # 默认：efficientnet（保持旧逻辑）
         model_path = INFERENCE_CONFIG["model_path"]
+        self.model_id = f"efficientnet_embedder:{MODEL_CONFIG.get('embedding_dim')}"
 
         self.embedder = EfficientNetEmbedder(
             embedding_dim=self.embedding_dim,
@@ -185,7 +212,19 @@ class ReagentRecognitionEngine:
         meta_path = INFERENCE_CONFIG["metadata_path"]
 
         if Path(index_path).exists() and Path(meta_path).exists():
-            self.faiss_index.load(index_path, meta_path)
+            # 维度不一致时不要硬加载（否则 search/add 会出错）
+            try:
+                loaded = self.faiss_index.load(index_path, meta_path)
+                if loaded and getattr(self.faiss_index.index, "d", None) != self.embedding_dim:
+                    d = getattr(self.faiss_index.index, "d", None)
+                    print(
+                        f"[Engine] ⚠️  现有索引维度({d})与当前特征维度({self.embedding_dim})不一致，"
+                        f"将忽略旧索引。请运行 scripts/build_index.py 重建索引。"
+                    )
+                    self.faiss_index = FAISSIndex(self.embedding_dim)
+            except Exception as e:
+                print(f"[Engine] ⚠️  索引加载失败，将在首次注册后创建。原因: {e}")
+                self.faiss_index = FAISSIndex(self.embedding_dim)
         else:
             print("[Engine] 索引文件不存在，将在首次注册后创建")
 
@@ -221,16 +260,27 @@ class ReagentRecognitionEngine:
         else:
             raise ValueError(f"不支持的图像类型: {type(image_input)}")
 
-        # albumentations变换
+        if self.preprocess_mode == "foundation":
+            # foundation preprocess expects RGB float tensor in [0,1]
+            pil = Image.fromarray(img)
+            t = torch.from_numpy(np.array(pil)).permute(2, 0, 1).float() / 255.0  # [3,H,W]
+            t = t.unsqueeze(0).to(DEVICE)
+            return t
+
+        # albumentations变换（efficientnet）
         augmented = self.transform(image=img)
-        tensor = augmented['image'].unsqueeze(0).to(DEVICE)  # [1, 3, H, W]
+        tensor = augmented["image"].unsqueeze(0).to(DEVICE)  # [1, 3, H, W]
         return tensor
 
     @torch.no_grad()
     def extract_embedding(self, image_input) -> np.ndarray:
         """提取图像嵌入向量"""
         tensor = self._preprocess_image(image_input)
-        embedding = self.embedder(tensor)  # [1, 512]
+        if self.preprocess_mode == "foundation":
+            pixel_values = self.foundation_preprocess(tensor)  # -> pixel_values
+            embedding = self.embedder(pixel_values)
+        else:
+            embedding = self.embedder(tensor)  # [1, D]
         return embedding.cpu().numpy()[0]  # [512]
 
     def register_reagent(
@@ -395,7 +445,7 @@ class ReagentRecognitionEngine:
             }
 
         try:
-            from backend.core.object_detector import ObjectDetector
+            from backend.core.object_detector import get_detector
         except ImportError:
             return {
                 "total_objects": 0,
@@ -404,8 +454,8 @@ class ReagentRecognitionEngine:
                 "message": "目标检测模块未安装，请先安装 ultralytics: pip install ultralytics",
             }
 
-        # 初始化检测器
-        detector = ObjectDetector()
+        # 使用全局检测器单例（避免每次请求都重复加载 YOLO）
+        detector = get_detector()
 
         # 预处理图像
         if isinstance(image_input, str):
@@ -418,8 +468,12 @@ class ReagentRecognitionEngine:
         else:
             img = np.array(image_input)
 
-        # 检测所有试剂瓶
+        h, w = img.shape[:2]
+
+        # 检测所有物体
         detections = detector.detect(img, confidence_threshold=min_confidence)
+        # 按置信度排序，避免低质量框影响结果
+        detections = sorted(detections, key=lambda d: float(d.get("confidence", 0.0)), reverse=True)
 
         recognized_objects = []
         unrecognized_objects = []
@@ -429,8 +483,19 @@ class ReagentRecognitionEngine:
             x1, y1, x2, y2 = det['bbox']
             confidence = det['confidence']
 
-            # 裁剪检测区域
-            crop = img[y1:y2, x1:x2]
+            # 过滤过小的框（通常是误检/噪声）
+            bw = max(0, x2 - x1)
+            bh = max(0, y2 - y1)
+            if bw < max(20, int(0.03 * w)) or bh < max(20, int(0.03 * h)):
+                continue
+
+            # 裁剪检测区域（带 padding，提升识别稳定性）
+            pad = max(10, int(0.08 * max(bw, bh)))
+            cx1 = max(0, x1 - pad)
+            cy1 = max(0, y1 - pad)
+            cx2 = min(w, x2 + pad)
+            cy2 = min(h, y2 + pad)
+            crop = img[cy1:cy2, cx1:cx2]
 
             if crop.size == 0:
                 continue
@@ -440,7 +505,9 @@ class ReagentRecognitionEngine:
 
             obj_info = {
                 "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                "crop_bbox": [int(cx1), int(cy1), int(cx2), int(cy2)],
                 "detection_confidence": float(confidence),
+                "detector_class": det.get("class_name", "unknown"),
             }
 
             if result["recognized"]:
@@ -492,10 +559,10 @@ class ReagentRecognitionEngine:
             "unique_reagent_names": len(unique_names),
             "faiss_vectors": self.faiss_index.total,
             "device": DEVICE,
-            "model": MODEL_CONFIG["backbone"],
+            "model": self.model_id or MODEL_CONFIG.get("backbone", "N/A"),
         }
 
-    def rebuild_index_from_images(self, data_dir: str, db=None):
+    async def rebuild_index_from_images(self, data_dir: str, db=None):
         """
         从图片目录重建索引
         （目录结构：data/images/乙醇001/*.jpg）
@@ -506,7 +573,6 @@ class ReagentRecognitionEngine:
         """
         from pathlib import Path
         import cv2
-        import asyncio
         from backend.core.database import Reagent
         from sqlalchemy import select, update
 
@@ -515,11 +581,13 @@ class ReagentRecognitionEngine:
 
         # 从数据库获取试剂名称映射
         reagent_name_map = {}
+        db_reagent_ids = None
         if db is not None:
             try:
-                result = asyncio.run(db.execute(select(Reagent)))
+                result = await db.execute(select(Reagent))
                 reagents = result.scalars().all()
                 reagent_name_map = {r.reagent_id: r.reagent_name for r in reagents}
+                db_reagent_ids = set(reagent_name_map.keys())
                 print(f"[Engine] 从数据库加载了 {len(reagent_name_map)} 个试剂名称")
             except Exception as e:
                 print(f"[Engine] 从数据库加载试剂名称失败: {e}")
@@ -533,6 +601,14 @@ class ReagentRecognitionEngine:
                 continue
 
             reagent_id = class_dir.name
+            # 跳过明显非试剂目录
+            if reagent_id in {"corrections", "__pycache__", ".git"}:
+                continue
+            # 如果提供了数据库，则以数据库为准过滤，避免把无关目录当试剂
+            if db_reagent_ids is not None and reagent_id not in db_reagent_ids:
+                print(f"[Engine] 跳过目录 '{reagent_id}'（数据库中不存在该 reagent_id）")
+                continue
+
             # 优先使用数据库中的名称，否则从ID推断
             reagent_name = reagent_name_map.get(reagent_id)
             if not reagent_name:
@@ -564,12 +640,12 @@ class ReagentRecognitionEngine:
         if db is not None and reagent_image_counts:
             try:
                 for reagent_id, count in reagent_image_counts.items():
-                    asyncio.run(db.execute(
+                    await db.execute(
                         update(Reagent)
                         .where(Reagent.reagent_id == reagent_id)
                         .values(image_count=count)
-                    ))
-                asyncio.run(db.commit())
+                    )
+                await db.commit()
                 print(f"[Engine] 已更新 {len(reagent_image_counts)} 个试剂的图片数量")
             except Exception as e:
                 print(f"[Engine] 更新数据库图片数量失败: {e}")

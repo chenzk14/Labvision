@@ -16,6 +16,9 @@ pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 --extra-index-url https
 # 核心依赖
 pip install timm faiss-cpu fastapi uvicorn sqlalchemy aiosqlite opencv-python albumentations pydantic python-multipart tqdm scikit-learn
 
+# 可选：使用 DINOv2 / CLIP 作为特征提取器（小样本更稳）
+pip install transformers accelerate safetensors
+
 # 多物体识别依赖（YOLOv8）
 pip install ultralytics
 

@@ -13,6 +13,7 @@ import {
   EditOutlined,
 } from '@ant-design/icons'
 import { api } from '../services/api'
+import ImageCropper from '../components/ImageCropper'
 
 export default function MultipleRecognize() {
   const [cameraActive, setCameraActive] = useState(false)
@@ -28,6 +29,7 @@ export default function MultipleRecognize() {
   const [submittingCorrection, setSubmittingCorrection] = useState(false)
   const [reagents, setReagents] = useState([])
   const [correctionObject, setCorrectionObject] = useState(null)
+  const [cropPixels, setCropPixels] = useState(null)
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -219,6 +221,7 @@ export default function MultipleRecognize() {
   const handleOpenCorrection = (obj, type) => {
     setCorrectionObject({ obj, type })
     setShowCorrectionModal(true)
+    setCropPixels(null)
     form.setFieldsValue({
       original_recognition_id: type === 'recognized' ? obj.reagent_id : (obj.best_candidate || ''),
       original_confidence: obj.confidence,
@@ -235,6 +238,13 @@ export default function MultipleRecognize() {
       formData.append('file', blob, 'correction.jpg')
       formData.append('corrected_reagent_id', values.corrected_reagent_id)
       formData.append('corrected_reagent_name', values.corrected_reagent_name)
+      // 多物体纠错：优先用检测框进行裁剪，避免背景干扰
+      if (cropPixels) {
+        formData.append('crop_x1', cropPixels.x1)
+        formData.append('crop_y1', cropPixels.y1)
+        formData.append('crop_x2', cropPixels.x2)
+        formData.append('crop_y2', cropPixels.y2)
+      }
       if (values.original_recognition_id) {
         formData.append('original_recognition_id', values.original_recognition_id)
       }
@@ -424,6 +434,12 @@ export default function MultipleRecognize() {
             </div>
           ) : (
             <>
+              <Alert
+                message={result.message}
+                type={result.recognized_count > 0 ? 'success' : 'warning'}
+                style={{ marginTop: 12 }}
+                showIcon
+              />
               {result.recognized_objects?.length > 0 && (
                 <>
                   <Divider orientation="left">已识别</Divider>
@@ -527,13 +543,6 @@ export default function MultipleRecognize() {
                   ))}
                 </>
               )}
-
-              <Alert
-                message={result.message}
-                type={result.recognized_count > 0 ? 'success' : 'warning'}
-                style={{ marginTop: 12 }}
-                showIcon
-              />
             </>
           )}
         </Card>
@@ -638,17 +647,18 @@ export default function MultipleRecognize() {
           setShowCorrectionModal(false)
           form.resetFields()
           setCorrectionObject(null)
+          setCropPixels(null)
         }}
         footer={null}
         width={500}
       >
-        <Alert
+        {/* <Alert
           message="纠错说明"
           description="请选择正确的试剂ID，系统将自动将此图片注册到识别引擎中，提升后续识别准确率。"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-        />
+        /> */}
         <Form
           form={form}
           layout="vertical"
@@ -656,10 +666,25 @@ export default function MultipleRecognize() {
         >
           {capturedImage && (
             <div style={{ marginBottom: 16, textAlign: 'center' }}>
-              <img
+              <ImageCropper
                 src={capturedImage}
-                alt="captured"
-                style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 4 }}
+                height={220}
+                initialCrop={correctionObject?.obj?.crop_bbox
+                  ? {
+                      x1: correctionObject.obj.crop_bbox[0],
+                      y1: correctionObject.obj.crop_bbox[1],
+                      x2: correctionObject.obj.crop_bbox[2],
+                      y2: correctionObject.obj.crop_bbox[3],
+                    }
+                  : (correctionObject?.obj?.bbox
+                    ? {
+                        x1: correctionObject.obj.bbox[0],
+                        y1: correctionObject.obj.bbox[1],
+                        x2: correctionObject.obj.bbox[2],
+                        y2: correctionObject.obj.bbox[3],
+                      }
+                    : null)}
+                onChange={(c) => setCropPixels(c)}
               />
               {correctionObject && (
                 <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
@@ -670,24 +695,27 @@ export default function MultipleRecognize() {
           )}
           <Form.Item
             name="corrected_reagent_id"
-            label="正确的试剂ID"
-            rules={[{ required: true, message: '请选择试剂ID' }]}
+            label="正确的试剂名称"
+            rules={[{ required: true, message: '请选择试剂' }]}
           >
             <Select
               showSearch
-              placeholder="选择正确的试剂"
+              placeholder="按名称搜索/选择"
               filterOption={(input, option) =>
                 (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
               }
-              options={reagents.map(r => ({ label: `${r.reagent_id} - ${r.reagent_name}`, value: r.reagent_id }))}
+              options={reagents.map(r => ({ label: r.reagent_name, value: r.reagent_id }))}
+              onChange={(rid) => {
+                const r = reagents.find(x => x.reagent_id === rid)
+                form.setFieldsValue({ corrected_reagent_name: r?.reagent_name || '' })
+              }}
             />
           </Form.Item>
           <Form.Item
             name="corrected_reagent_name"
-            label="试剂名称"
-            // rules={[{ required: true, message: '请输入试剂名称' }]}
+            hidden
           >
-            <Input placeholder="如：乙醇" />
+            <Input />
           </Form.Item>
           <Form.Item
             name="original_recognition_id"
@@ -709,8 +737,8 @@ export default function MultipleRecognize() {
           </Form.Item>
           <Form.Item
             name="apply_immediately"
-            valuePropName="checked"
             initialValue={true}
+            label="是否立即应用"
           >
             <Select
               options={[

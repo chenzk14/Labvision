@@ -627,6 +627,10 @@ async def submit_correction(
     file: UploadFile = File(...),
     corrected_reagent_id: str = Form(...),
     corrected_reagent_name: str = Form(...),
+    crop_x1: Optional[int] = Form(None),
+    crop_y1: Optional[int] = Form(None),
+    crop_x2: Optional[int] = Form(None),
+    crop_y2: Optional[int] = Form(None),
     original_recognition_id: Optional[str] = Form(None),
     original_confidence: Optional[float] = Form(None),
     notes: Optional[str] = Form(None),
@@ -654,9 +658,26 @@ async def submit_correction(
     filename = f"{timestamp}_correction.jpg"
     save_path = save_dir / filename
 
+    # 保存原图
     content = await file.read()
     with open(save_path, "wb") as f:
         f.write(content)
+
+    # 可选：裁剪后再用于纠错/注册（用于多物体纠错等场景）
+    if all(v is not None for v in [crop_x1, crop_y1, crop_x2, crop_y2]):
+        try:
+            img0 = cv2.imread(str(save_path))
+            if img0 is not None:
+                h, w = img0.shape[:2]
+                x1 = max(0, min(int(crop_x1), w - 1))
+                y1 = max(0, min(int(crop_y1), h - 1))
+                x2 = max(0, min(int(crop_x2), w))
+                y2 = max(0, min(int(crop_y2), h))
+                if x2 > x1 and y2 > y1:
+                    cropped = img0[y1:y2, x1:x2]
+                    cv2.imwrite(str(save_path), cropped)
+        except Exception as e:
+            print(f"[API] 裁剪纠错图片失败，将使用原图: {e}")
 
     # 创建纠错记录
     correction = CorrectionLog(
@@ -720,6 +741,54 @@ async def submit_correction(
         "is_applied": apply_immediately,
         "message": f"纠错提交成功，已{'应用' if apply_immediately else '保存'}到识别系统",
     }
+
+
+@app.delete("/api/reagents/{reagent_id}/images/{image_id}")
+async def delete_reagent_image(
+    reagent_id: str,
+    image_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """删除单张已注册图片，并自动重建检索索引（保证删除后立即生效）"""
+    # 1) 查试剂
+    result = await db.execute(select(Reagent).where(Reagent.reagent_id == reagent_id))
+    reagent = result.scalar_one_or_none()
+    if not reagent:
+        raise HTTPException(404, f"试剂 '{reagent_id}' 不存在")
+
+    # 2) 查图片记录
+    img_res = await db.execute(
+        select(ReagentImage).where(
+            ReagentImage.id == image_id,
+            ReagentImage.reagent_id == reagent_id,
+        )
+    )
+    img = img_res.scalar_one_or_none()
+    if not img:
+        raise HTTPException(404, f"图片记录 {image_id} 不存在")
+
+    # 3) 删除文件（如果存在）
+    img_path = Path(img.image_path)
+    if img_path.exists():
+        try:
+            img_path.unlink()
+        except Exception as e:
+            raise HTTPException(500, f"删除图片文件失败: {e}")
+
+    # 4) 删除 DB 记录
+    await db.execute(ReagentImage.__table__.delete().where(ReagentImage.id == image_id))
+    await db.commit()
+
+    # 5) 重建索引（同时会回写每个试剂的 image_count）
+    try:
+        engine = get_engine()
+        await engine.rebuild_index_from_images(str(IMAGES_DIR), db=db)
+    except Exception as e:
+        # 索引重建失败不应该让接口整体失败（至少图片已删除）
+        print(f"[API] 删除图片后重建索引失败: {e}")
+
+    # 6) 返回最新详情
+    return {"success": True, "message": f"图片 {image_id} 已删除并更新检索索引"}
 
 
 @app.get("/api/corrections")

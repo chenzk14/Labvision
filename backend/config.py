@@ -31,6 +31,18 @@ MODEL_CONFIG = {
     # 显存占用仍可被 1050Ti 接受
     "backbone": "efficientnet_b2",
 
+    # 特征提取器类型：
+    # - "efficientnet": 使用当前项目内置 EfficientNetEmbedder（需要/可选训练权重）
+    # - "dinov2": 使用 DINOv2 自监督基础模型提特征（transformers）
+    # - "clip": 使用 CLIP 视觉编码器提特征（transformers）
+    #
+    # 小样本、角度不固定时，推荐 "dinov2" 或 "clip"
+    "feature_extractor": "dinov2",
+
+    # 基础模型名称（transformers hub id）
+    "dinov2_model_name": "facebook/dinov2-base",
+    "clip_model_name": "openai/clip-vit-base-patch32",
+
     # 特征向量维度
     # 512 -> 384 可以减少过拟合
     "embedding_dim": 384,
@@ -131,6 +143,8 @@ FAISS_CONFIG = {
     "index_type": "HNSW",
 
     # 向量维度
+    # 注意：当 feature_extractor 为 dinov2/clip 时，实际维度将由模型决定，
+    # 这里仅作为默认值保留（避免影响旧逻辑）。
     "embedding_dim": MODEL_CONFIG["embedding_dim"],
 
     # HNSW参数
