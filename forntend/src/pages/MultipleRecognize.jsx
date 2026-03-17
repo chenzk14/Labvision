@@ -315,12 +315,12 @@ export default function MultipleRecognize() {
           title="多试剂检测"
           extra={
             <Space>
-              <Button
-                icon={<SettingOutlined />}
-                onClick={() => setShowSettings(true)}
-              >
-                设置
-              </Button>
+              {/*<Button*/}
+              {/*  icon={<SettingOutlined />}*/}
+              {/*  onClick={() => setShowSettings(true)}*/}
+              {/*>*/}
+              {/*  设置*/}
+              {/*</Button>*/}
             </Space>
           }
         >

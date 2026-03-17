@@ -32,7 +32,7 @@ const menuItems = [
 const pageMap = {
   dashboard: <Dashboard />,
   register: <ReagentRegister />,
-  recognize: <ReagentRecognize />,
+  // recognize: <ReagentRecognize />,
   multiple: <MultipleRecognize />,
   list: <ReagentList />,
   correction: <CorrectionManage />,
