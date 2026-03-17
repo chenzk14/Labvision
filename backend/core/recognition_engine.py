@@ -636,17 +636,31 @@ class ReagentRecognitionEngine:
         print(f"[Engine] 索引重建完成，共注册 {total} 张图片")
         self._save_index()
         
-        # 更新数据库中的图片数量
-        if db is not None and reagent_image_counts:
+        # 更新数据库中的图片数量（基于 ReagentImage 记录数量，而不是文件数量）
+        if db is not None:
             try:
-                for reagent_id, count in reagent_image_counts.items():
+                from backend.core.database import ReagentImage
+                
+                # 获取所有试剂的图片记录数量
+                img_result = await db.execute(
+                    select(ReagentImage.reagent_id, ReagentImage.id)
+                )
+                img_records = img_result.all()
+                
+                # 统计每个试剂的图片数量
+                image_counts = {}
+                for reagent_id, _ in img_records:
+                    image_counts[reagent_id] = image_counts.get(reagent_id, 0) + 1
+                
+                # 更新每个试剂的 image_count
+                for reagent_id, count in image_counts.items():
                     await db.execute(
                         update(Reagent)
                         .where(Reagent.reagent_id == reagent_id)
                         .values(image_count=count)
                     )
                 await db.commit()
-                print(f"[Engine] 已更新 {len(reagent_image_counts)} 个试剂的图片数量")
+                print(f"[Engine] 已更新 {len(image_counts)} 个试剂的图片数量（基于数据库记录）")
             except Exception as e:
                 print(f"[Engine] 更新数据库图片数量失败: {e}")
 

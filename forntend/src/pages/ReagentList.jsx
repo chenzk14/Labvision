@@ -276,6 +276,22 @@ export default function ReagentList() {
         >
           刷新列表
         </Button>
+        <Button 
+          onClick={async () => {
+            try {
+              const res = await api.syncImageCounts()
+              message.success(res.message)
+              if (res.details && res.details.length > 0) {
+                console.log('同步详情:', res.details)
+              }
+              loadReagents()
+            } catch (e) {
+              message.error('同步失败：' + (e.response?.data?.detail || e.message))
+            }
+          }}
+        >
+          同步图片数
+        </Button>
       </div>
 
       <Table

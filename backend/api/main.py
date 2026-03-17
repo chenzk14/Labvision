@@ -473,6 +473,62 @@ async def list_reagents(
     ]
 
 
+@app.post("/api/reagents/sync-image-counts")
+async def sync_image_counts(db: AsyncSession = Depends(get_db)):
+    """
+    同步所有试剂的 image_count 与实际的 ReagentImage 记录数量
+    用于修复图片数显示不正确的问题
+    """
+    # 获取所有试剂
+    reagent_result = await db.execute(select(Reagent))
+    reagents = reagent_result.scalars().all()
+    
+    # 获取所有图片记录
+    img_result = await db.execute(
+        select(ReagentImage.reagent_id, ReagentImage.id)
+    )
+    img_records = img_result.all()
+    
+    # 统计每个试剂的图片数量
+    image_counts = {}
+    for reagent_id, _ in img_records:
+        image_counts[reagent_id] = image_counts.get(reagent_id, 0) + 1
+    
+    # 更新每个试剂的 image_count
+    updated_count = 0
+    mismatch_count = 0
+    for reagent in reagents:
+        actual_count = image_counts.get(reagent.reagent_id, 0)
+        if reagent.image_count != actual_count:
+            await db.execute(
+                update(Reagent)
+                .where(Reagent.reagent_id == reagent.reagent_id)
+                .values(image_count=actual_count)
+            )
+            updated_count += 1
+            mismatch_count += 1
+            print(f"[Sync] {reagent.reagent_id}: {reagent.image_count} -> {actual_count}")
+    
+    await db.commit()
+    
+    return {
+        "success": True,
+        "message": f"已同步 {updated_count} 个试剂的图片数量",
+        "total_reagents": len(reagents),
+        "updated_count": updated_count,
+        "mismatch_count": mismatch_count,
+        "details": [
+            {
+                "reagent_id": r.reagent_id,
+                "old_count": r.image_count,
+                "new_count": image_counts.get(r.reagent_id, 0)
+            }
+            for r in reagents
+            if r.image_count != image_counts.get(r.reagent_id, 0)
+        ]
+    }
+
+
 @app.get("/api/reagents/{reagent_id}")
 async def get_reagent(reagent_id: str, db: AsyncSession = Depends(get_db)):
     """获取单个试剂详情"""
@@ -722,6 +778,13 @@ async def submit_correction(
                     angle="correction",
                 )
                 db.add(img_record)
+                
+                # 更新图片计数
+                await db.execute(
+                    update(Reagent)
+                    .where(Reagent.reagent_id == corrected_reagent_id)
+                    .values(image_count=reagent.image_count + 1)
+                )
                 
                 # 更新纠错记录
                 await db.execute(

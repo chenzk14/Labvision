@@ -30,6 +30,8 @@ export default function MultipleRecognize() {
   const [reagents, setReagents] = useState([])
   const [correctionObject, setCorrectionObject] = useState(null)
   const [cropPixels, setCropPixels] = useState(null)
+  const [isNewReagentMode, setIsNewReagentMode] = useState(false)
+  const [creatingReagent, setCreatingReagent] = useState(false)
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -231,13 +233,46 @@ export default function MultipleRecognize() {
   const handleSubmitCorrection = async (values) => {
     setSubmittingCorrection(true)
     try {
+      let reagentId = values.corrected_reagent_id
+      let reagentName = values.corrected_reagent_name
+
+      if (isNewReagentMode) {
+        setCreatingReagent(true)
+        try {
+          const reagentData = {
+            reagent_id: values.new_reagent_id || undefined,
+            reagent_name: values.new_reagent_name,
+            cas_number: values.cas_number,
+            manufacturer: values.manufacturer,
+            batch_number: values.batch_number,
+            expiry_date: values.expiry_date,
+            location: values.location,
+            notes: values.notes,
+          }
+          const createRes = await api.createReagent(reagentData)
+          if (createRes.success) {
+            reagentId = createRes.reagent_id
+            reagentName = values.new_reagent_name
+            message.success(`新试剂 ${reagentId} 创建成功！`)
+            await loadReagents()
+          } else {
+            throw new Error('创建试剂失败')
+          }
+        } catch (e) {
+          message.error('创建试剂失败：' + (e.response?.data?.detail || e.message))
+          return
+        } finally {
+          setCreatingReagent(false)
+        }
+      }
+
       const b64 = capturedImage.split(',')[1]
       const blob = await fetch(`data:image/jpeg;base64,${b64}`).then(res => res.blob())
 
       const formData = new FormData()
       formData.append('file', blob, 'correction.jpg')
-      formData.append('corrected_reagent_id', values.corrected_reagent_id)
-      formData.append('corrected_reagent_name', values.corrected_reagent_name)
+      formData.append('corrected_reagent_id', reagentId)
+      formData.append('corrected_reagent_name', reagentName)
       // 多物体纠错：优先用检测框进行裁剪，避免背景干扰
       if (cropPixels) {
         formData.append('crop_x1', cropPixels.x1)
@@ -263,6 +298,7 @@ export default function MultipleRecognize() {
         setShowCorrectionModal(false)
         form.resetFields()
         setCorrectionObject(null)
+        setIsNewReagentMode(false)
       }
     } catch (e) {
       message.error('提交失败：' + (e.response?.data?.detail || e.message))
@@ -648,115 +684,146 @@ export default function MultipleRecognize() {
           form.resetFields()
           setCorrectionObject(null)
           setCropPixels(null)
+          setIsNewReagentMode(false)
         }}
         footer={null}
-        width={500}
+        width={900}
       >
-        {/* <Alert
-          message="纠错说明"
-          description="请选择正确的试剂ID，系统将自动将此图片注册到识别引擎中，提升后续识别准确率。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        /> */}
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSubmitCorrection}
         >
-          {capturedImage && (
-            <div style={{ marginBottom: 16, textAlign: 'center' }}>
-              <ImageCropper
-                src={capturedImage}
-                height={220}
-                initialCrop={correctionObject?.obj?.crop_bbox
-                  ? {
-                      x1: correctionObject.obj.crop_bbox[0],
-                      y1: correctionObject.obj.crop_bbox[1],
-                      x2: correctionObject.obj.crop_bbox[2],
-                      y2: correctionObject.obj.crop_bbox[3],
-                    }
-                  : (correctionObject?.obj?.bbox
-                    ? {
-                        x1: correctionObject.obj.bbox[0],
-                        y1: correctionObject.obj.bbox[1],
-                        x2: correctionObject.obj.bbox[2],
-                        y2: correctionObject.obj.bbox[3],
-                      }
-                    : null)}
-                onChange={(c) => setCropPixels(c)}
-              />
-              {correctionObject && (
-                <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                  检测区域: [{correctionObject.obj.bbox.join(', ')}]
+          <Row gutter={24}>
+            <Col span={12}>
+              {capturedImage && (
+                <div>
+                  <ImageCropper
+                    src={capturedImage}
+                    height={400}
+                    initialCrop={correctionObject?.obj?.crop_bbox
+                      ? {
+                          x1: correctionObject.obj.crop_bbox[0],
+                          y1: correctionObject.obj.crop_bbox[1],
+                          x2: correctionObject.obj.crop_bbox[2],
+                          y2: correctionObject.obj.crop_bbox[3],
+                        }
+                      : (correctionObject?.obj?.bbox
+                        ? {
+                            x1: correctionObject.obj.bbox[0],
+                            y1: correctionObject.obj.bbox[1],
+                            x2: correctionObject.obj.bbox[2],
+                            y2: correctionObject.obj.bbox[3],
+                          }
+                        : null)}
+                    onChange={(c) => setCropPixels(c)}
+                  />
+                  {correctionObject && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+                      检测区域: [{correctionObject.obj.bbox.join(', ')}]
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
-          <Form.Item
-            name="corrected_reagent_id"
-            label="正确的试剂名称"
-            rules={[{ required: true, message: '请选择试剂' }]}
-          >
-            <Select
-              showSearch
-              placeholder="按名称搜索/选择"
-              filterOption={(input, option) =>
-                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              options={reagents.map(r => ({ label: r.reagent_name, value: r.reagent_id }))}
-              onChange={(rid) => {
-                const r = reagents.find(x => x.reagent_id === rid)
-                form.setFieldsValue({ corrected_reagent_name: r?.reagent_name || '' })
-              }}
-            />
-          </Form.Item>
-          <Form.Item
-            name="corrected_reagent_name"
-            hidden
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="original_recognition_id"
-            label="原识别结果（可选）"
-          >
-            <Input placeholder="如：乙醇002" />
-          </Form.Item>
-          {/* <Form.Item
-            name="original_confidence"
-            label="原识别置信度（可选）"
-          >
-            <Input type="number" step="0.01" min="0" max="1" placeholder="0.75" />
-          </Form.Item> */}
-          <Form.Item
-            name="notes"
-            label="备注（可选）"
-          >
-            <Input.TextArea rows={2} placeholder="如：标签模糊导致误识别" />
-          </Form.Item>
-          <Form.Item
-            name="apply_immediately"
-            initialValue={true}
-            label="是否立即应用"
-          >
-            <Select
-              options={[
-                { label: '立即应用到识别系统', value: true },
-                { label: '暂不应用', value: false },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={submittingCorrection}
-              block
-            >
-              提交纠错
-            </Button>
-          </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="corrected_reagent_id"
+                label="正确的试剂名称"
+                rules={[{ required: !isNewReagentMode, message: '请选择试剂' }]}
+              >
+                <Select
+                  showSearch
+                  placeholder="按名称搜索/选择"
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  onChange={(rid) => {
+                    if (rid === '__new__') {
+                      setIsNewReagentMode(true)
+                    } else {
+                      setIsNewReagentMode(false)
+                      form.setFieldsValue({
+                        corrected_reagent_name: reagents.find(x => x.reagent_id === rid)?.reagent_name || '',
+                        new_reagent_id: undefined,
+                        new_reagent_name: undefined,
+                      })
+                    }
+                  }}
+                  options={[
+                    ...reagents.map(r => ({ label: r.reagent_name, value: r.reagent_id })),
+                    { label: '+ 新增试剂', value: '__new__' }
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item
+                name="corrected_reagent_name"
+                hidden
+              >
+                <Input />
+              </Form.Item>
+
+              {isNewReagentMode && (
+                <>
+                  <Alert
+                    // message="新增试剂"
+                    description="请填写新试剂的基本信息，系统将自动创建试剂并注册此图片。"
+                    type="success"
+                    showIcon={false}
+                    style={{ marginBottom: 16 }}
+                  />
+                  {/*<Form.Item*/}
+                  {/*  name="new_reagent_id"*/}
+                  {/*  label="试剂ID（可选）"*/}
+                  {/*  extra="留空则自动生成（如：乙醇001）"*/}
+                  {/*>*/}
+                  {/*  <Input placeholder="如：乙醇001" />*/}
+                  {/*</Form.Item>*/}
+                  <Form.Item
+                    name="new_reagent_name"
+                    label="试剂名称"
+                    rules={[{ required: true, message: '请输入试剂名称' }]}
+                  >
+                    <Input placeholder="如：乙醇" />
+                  </Form.Item>
+                </>
+              )}
+              <Form.Item
+                name="original_recognition_id"
+                label="原识别结果（可选）"
+              >
+                <Input placeholder="如：乙醇002" />
+              </Form.Item>
+              <Form.Item
+                name="notes"
+                label="备注（可选）"
+              >
+                <Input.TextArea rows={2} placeholder="如：标签模糊导致误识别" />
+              </Form.Item>
+              <Form.Item
+                name="apply_immediately"
+                initialValue={true}
+                label="是否立即应用"
+              >
+                <Select
+                  options={[
+                    { label: '立即应用到识别系统', value: true },
+                    { label: '暂不应用', value: false },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={submittingCorrection}
+                  block
+                >
+                  提交纠错
+                </Button>
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
     </Row>

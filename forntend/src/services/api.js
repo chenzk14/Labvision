@@ -77,4 +77,8 @@ export const api = {
 
   deleteCorrection: (correctionId) =>
     client.delete(`/api/corrections/${correctionId}`).then(r => r.data),
+
+  // 同步图片数
+  syncImageCounts: () =>
+    client.post('/api/reagents/sync-image-counts').then(r => r.data),
 }

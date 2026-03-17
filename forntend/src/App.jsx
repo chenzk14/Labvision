@@ -11,7 +11,7 @@ import {
   CheckCircleOutlined,
 } from '@ant-design/icons'
 import ReagentRegister from './pages/ReagentRegister'
-import ReagentRecognize from './pages/ReagentRecognize'
+// import ReagentRecognize from './pages/ReagentRecognize'
 import MultipleRecognize from './pages/MultipleRecognize'
 import ReagentList from './pages/ReagentList'
 import Dashboard from './pages/Dashboard'

@@ -20,12 +20,25 @@ export default function ImageCropper({
     imgRef.current = img
 
     if (initialCrop) {
+      const scaleX = img.width / img.naturalWidth
+      const scaleY = img.height / img.naturalHeight
+      
+      const displayX = initialCrop.x1 * scaleX
+      const displayY = initialCrop.y1 * scaleY
+      const displayWidth = (initialCrop.x2 - initialCrop.x1) * scaleX
+      const displayHeight = (initialCrop.y2 - initialCrop.y1) * scaleY
+      
+      const clampedX = Math.max(0, Math.min(displayX, img.width - displayWidth))
+      const clampedY = Math.max(0, Math.min(displayY, img.height - displayHeight))
+      const clampedWidth = Math.min(displayWidth, img.width - clampedX)
+      const clampedHeight = Math.min(displayHeight, img.height - clampedY)
+      
       setCrop({
         unit: "px",
-        x: initialCrop.x1,
-        y: initialCrop.y1,
-        width: initialCrop.x2 - initialCrop.x1,
-        height: initialCrop.y2 - initialCrop.y1
+        x: clampedX,
+        y: clampedY,
+        width: clampedWidth,
+        height: clampedHeight
       })
     } else {
       setCrop({
