@@ -61,8 +61,13 @@ def package_model(output_dir: str = "deploy_package", skip_inference_script: boo
             print(f"  警告: {src} 不存在")
 
     # 3. 生成配置文件
+    # 修正：确保配置文件中的特征提取器与训练时使用的EfficientNet一致
+    model_config = MODEL_CONFIG.copy()
+    # 强制使用efficientnet，因为训练和索引构建都是用efficientnet
+    model_config["feature_extractor"] = "efficientnet"
+    
     config_data = {
-        "model_config": MODEL_CONFIG,
+        "model_config": model_config,
         "inference_config": INFERENCE_CONFIG,
         "device": DEVICE,
         "package_time": datetime.now().isoformat(),
@@ -94,6 +99,7 @@ from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import timm
+import math
 
 
 class EfficientNetEmbedder(nn.Module):
@@ -138,6 +144,94 @@ class EfficientNetEmbedder(nn.Module):
         return embeddings
 
 
+class ArcFaceLoss(nn.Module):
+    """ArcFace Loss (Additive Angular Margin Loss)"""
+    def __init__(
+            self,
+            embedding_dim: int = 512,
+            num_classes: int = 100,
+            margin: float = 0.5,
+            scale: float = 64.0,
+            easy_margin: bool = False,
+    ):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.num_classes = num_classes
+        self.margin = margin
+        self.scale = scale
+        self.easy_margin = easy_margin
+        
+        # ArcFace权重矩阵
+        self.weight = nn.Parameter(torch.FloatTensor(num_classes, embedding_dim))
+        nn.init.xavier_uniform_(self.weight)
+        
+        # 预计算cos(m)和sin(m)
+        self.cos_m = math.cos(margin)
+        self.sin_m = math.sin(margin)
+        self.th = math.cos(math.pi - margin)
+        self.mm = math.sin(math.pi - margin) * margin
+    
+    def forward(self, embeddings: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            embeddings: 归一化嵌入向量 [B, D]
+            labels: 类别标签 [B]
+        Returns:
+            loss: ArcFace损失
+        """
+        # 归一化权重
+        weight_norm = F.normalize(self.weight, p=2, dim=1)
+        
+        # 计算余弦相似度
+        cosine = F.linear(embeddings, weight_norm)  # [B, num_classes]
+        
+        # ArcFace变换
+        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
+        phi = cosine * self.cos_m - sine * self.sin_m  # cos(θ+m)
+        
+        if self.easy_margin:
+            phi = torch.where(cosine > 0, phi, cosine)
+        else:
+            phi = torch.where(cosine > self.th, phi, cosine - self.mm)
+        
+        # one-hot编码
+        one_hot = torch.zeros(cosine.size()).to(embeddings.device)
+        one_hot.scatter_(1, labels.view(-1, 1).long(), 1)
+        
+        # 输出
+        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
+        output *= self.scale
+        
+        # 交叉熵损失
+        loss = F.cross_entropy(output, labels)
+        return loss
+
+
+class ReagentRecognitionModel(nn.Module):
+    """试剂识别模型（与训练时相同的架构）"""
+    def __init__(self, num_classes: int, embedding_dim: int = 512, pretrained: bool = False):
+        super().__init__()
+        self.embedder = EfficientNetEmbedder(embedding_dim, pretrained)
+        self.arcface = ArcFaceLoss(embedding_dim, num_classes)
+        
+    def forward(self, x: torch.Tensor, labels: torch.Tensor = None):
+        """
+        Args:
+            x: 输入图像 [B, 3, H, W]
+            labels: 类别标签 [B] (可选，用于训练)
+        Returns:
+            embeddings: 特征向量 [B, D]
+            loss: 损失值（如果提供了labels）
+        """
+        embeddings = self.embedder(x)
+        
+        if labels is not None:
+            loss = self.arcface(embeddings, labels)
+            return embeddings, loss
+        else:
+            return embeddings, None
+
+
 class ReagentRecognitionEngine:
     """试剂识别引擎（独立版）"""
     def __init__(
@@ -175,7 +269,22 @@ class ReagentRecognitionEngine:
         
         # 加载模型
         checkpoint = torch.load(str(model_path), map_location=self.device)
-        self.embedder = EfficientNetEmbedder(embedding_dim=embedding_dim, pretrained=False).to(self.device)
+        
+        # 获取类别数（从class_mapping.json）
+        class_mapping_path = script_dir / "config" / "class_mapping.json"
+        if class_mapping_path.exists():
+            with open(str(class_mapping_path), "r", encoding="utf-8") as f:
+                class_mapping = json.load(f)
+            num_classes = len(class_mapping["class_to_idx"])
+        else:
+            num_classes = 100  # 默认值
+        
+        # 使用与训练时相同的模型架构
+        self.model = ReagentRecognitionModel(
+            num_classes=num_classes,
+            embedding_dim=embedding_dim,
+            pretrained=False
+        ).to(self.device)
         
         # 尝试不同的键名
         if "model_state_dict" in checkpoint:
@@ -197,14 +306,14 @@ class ReagentRecognitionEngine:
                 new_state_dict[k] = v
         
         # 加载状态字典
-        missing_keys, unexpected_keys = self.embedder.load_state_dict(new_state_dict, strict=False)
+        missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
         
         if missing_keys:
             print(f"[WARNING] 缺少的键: {missing_keys}")
         if unexpected_keys:
             print(f"[WARNING] 意外的键: {unexpected_keys}")
         
-        self.embedder.eval()
+        self.model.eval()
         
         # 加载FAISS索引
         self.index = faiss.read_index(str(index_path))
@@ -252,8 +361,8 @@ class ReagentRecognitionEngine:
     def extract_embedding(self, image_input):
         """提取嵌入向量"""
         tensor = self._preprocess_image(image_input)
-        embedding = self.embedder(tensor)
-        return embedding.cpu().numpy()[0]
+        embeddings, _ = self.model(tensor, labels=None)
+        return embeddings.cpu().numpy()[0]
     
     def recognize(self, image_input, topk=5):
         """识别试剂"""

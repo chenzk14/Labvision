@@ -29,8 +29,8 @@ MODEL_CONFIG = {
     # 主干网络
     # efficientnet_b2 在 fine-grained 任务表现明显好于 b0
     # 显存占用仍可被 1050Ti 接受
-    # "backbone": "efficientnet_b2",
-    "backbone": "None",
+    "backbone": "efficientnet_b2",
+    # "backbone": "None",
 
     # 特征提取器类型：
     # - "efficientnet": 使用当前项目内置 EfficientNetEmbedder（需要/可选训练权重）
@@ -39,7 +39,8 @@ MODEL_CONFIG = {
     # 小样本、角度不固定时，推荐 "dinov2" 或 "clip"
 
     # "feature_extractor": "dinov2",
-    "feature_extractor": "clip  ",
+    # "feature_extractor": "clip",
+    "feature_extractor": "efficientnet",
 
     # 基础模型名称（transformers hub id）
     # "dinov2_model_name": "facebook/dinov2-base",
