@@ -38,7 +38,7 @@ def package_model(output_dir: str = "deploy_package", skip_inference_script: boo
         output_path / "models",
         output_path / "embeddings",
         output_path / "config",
-        output_path / "scripts",
+        # output_path / "scripts",
     ]
     for d in dirs_to_create:
         d.mkdir(parents=True, exist_ok=True)
@@ -385,7 +385,7 @@ if __name__ == "__main__":
 ### 1. 安装依赖
 
 ```bash
-pip install torch torchvision faiss-cpu opencv-python pillow albumentations numpy
+python -m pip install -r requirements.txt
 ```
 
 ### 2. 运行推理
@@ -451,10 +451,6 @@ for img_path in Path("images").glob("*.jpg"):
 2. 光照条件良好
 3. 试剂在图片中居中
 4. 如果识别率低，可以降低相似度阈值
-
-## 📞 技术支持
-
-如有问题，请联系技术支持。
 
 ---
 打包时间: {package_time}
