@@ -126,11 +126,6 @@ python scripts/build_index.py
 POST /api/reagents/{reagent_id}/register-image
 ```
 
-### 摄像头测试
-```bash
-python scripts/camera_test.py
-```
-
 ---
 
 ## 🚀 启动服务
@@ -157,134 +152,25 @@ npm start
 
 ## ✨ 功能说明
 
-### 1. 试剂录入
-- 录入试剂基本信息（名称、CAS号、批次等）
-- 拍摄多角度图片并注册
-- 支持多张图片注册
-- 实时预览已注册图片
-
-### 2. 多试剂检测 
-- 同时识别图片中的多个试剂瓶
-- 支持摄像头实时检测
-- 支持图片上传批量检测
-- 自动绘制检测框和标签
-- 可调整检测阈值
-
-### 3. 试剂库管理
-- 查看所有已注册试剂
-- 试剂详情和图片列表
-- 添加/删除试剂图片
-- 永久删除试剂
-- 搜索过滤功能
-
-### 4. 识别日志
-- 查看所有识别记录
-- 识别统计信息
-- 按时间/试剂筛选
-
-### 5. 纠错管理 ⭐ 新功能
-- 摄像头纠错：实时拍摄并提交纠错
-- 上传纠错：上传已有的正确图片
-- 查看纠错记录
-- 应用纠错：将纠错样本应用到识别系统
-- 批量应用：一次性应用所有未应用的纠错
-- 纠错统计：查看纠错效果
-
-### 6. 系统监控
-- 已注册试剂数量
-- 图片向量数量
-- 注册记录统计
-- 实时数据刷新
-
----
-
-## 📡 API接口
-
-### 系统状态
-```bash
-GET /api/status
-```
-
-### 单物体识别
-```bash
-# 文件上传
-POST /api/recognize
-Content-Type: multipart/form-data
-
-# Base64编码
-POST /api/recognize/base64
-Content-Type: application/json
-{"image": "base64string"}
-```
-
-### 多物体识别
-```bash
-# 文件上传
-POST /api/recognize/multiple
-Content-Type: multipart/form-data
-参数：file, min_confidence, topk
-
-# Base64编码
-POST /api/recognize/multiple/base64
-Content-Type: application/json
-{"image": "base64string", "min_confidence": 0.5, "topk": 5}
-```
-
-### 试剂管理
-```bash
-# 创建试剂
-POST /api/reagents
-
-# 注册图片
-POST /api/reagents/{reagent_id}/register-image
-
-# 查询试剂列表
-GET /api/reagents
-
-# 查询试剂详情
-GET /api/reagents/{reagent_id}
-
-# 删除试剂（软删除）
-DELETE /api/reagents/{reagent_id}
-
-# 永久删除试剂
-DELETE /api/reagents/{reagent_id}/permanent
-
-# 删除试剂图片
-DELETE /api/reagents/{reagent_id}/images/{image_id}
-```
-
-### 纠错管理
-```bash
-# 提交纠错
-POST /api/corrections/submit
-参数：file, corrected_reagent_id, corrected_reagent_name, notes, apply_immediately
-
-# 获取纠错列表
-GET /api/corrections
-
-# 获取纠错统计
-GET /api/corrections/statistics
-
-# 应用单个纠错
-POST /api/corrections/apply/{correction_id}
-
-# 批量应用纠错
-POST /api/corrections/batch-apply
-参数：correction_ids (数组)
-
-# 删除纠错
-DELETE /api/corrections/{correction_id}
-```
-
-### 识别日志
-```bash
-# 获取识别日志
-GET /api/recognitions
-
-# 获取识别统计
-GET /api/recognitions/statistics
-```
+| 模块 | 功能 | 子功能 |
+|------|------|--------|
+| 试剂录入 | 基本信息管理 | 录入试剂名称、CAS号、批次等 |
+|        | 图片采集 | 拍摄多角度图片并注册 |
+|        | 图片管理 | 支持多张图片注册 |
+|        | 预览 | 实时预览已注册图片 |
+| 多试剂检测 | 目标检测 | 同时识别图片中的多个试剂瓶 |
+|          | 实时检测 | 支持摄像头实时检测 |
+|          | 批量检测 | 支持图片上传批量检测 |
+|          | 结果展示 | 自动绘制检测框和标签 |
+| 试剂库管理 | 数据查看 | 查看所有已注册试剂 |
+|            | 详情管理 | 试剂详情和图片列表 |
+|            | 图片维护 | 添加/删除试剂图片 |
+|            | 数据删除 | 永久删除试剂 |
+|            | 搜索功能 | 搜索过滤功能 |
+| 纠错管理 | 数据采集 | 摄像头纠错：实时拍摄并提交纠错 |
+|   ⭐ 新功能       | 记录管理 | 查看纠错记录 |
+|          | 应用机制 | 应用纠错：将纠错样本应用到识别系统 |
+|          | 批量处理 | 批量应用所有未应用的纠错 |
 
 ---
 
@@ -307,10 +193,11 @@ reagent-vision/
 │       └── main.py                  ← FastAPI全部接口
 ├── forntend/
 │   ├── src/
+│   │   ├── components/
+│   │   │   ├── ImageCropper.jsx     ← 图片裁剪组件
 │   │   ├── pages/
 │   │   │   ├── Dashboard.jsx        ← 系统概览
 │   │   │   ├── ReagentRegister.jsx  ← 试剂录入界面
-│   │   │   ├── ReagentRecognize.jsx ← 实时识别界面（单试剂）
 │   │   │   ├── MultipleRecognize.jsx ← 多试剂检测界面
 │   │   │   ├── ReagentList.jsx      ← 试剂库管理
 │   │   │   └── CorrectionManage.jsx ← 纠错管理界面 ⭐
@@ -318,14 +205,13 @@ reagent-vision/
 │   │   │   └── api.js              ← API服务封装
 │   │   ├── styles/
 │   │   │   └── global.css          ← 全局样式
-│   │   ├── App.jsx                  ← 主应用
+│   │   ├── App.jsx                 ← 主应用
 │   │   └── index.js                ← 入口文件
 │   └── package.json
 ├── scripts/
 │   ├── train.py                    ← 训练启动
 │   ├── build_index.py              ← 构建FAISS索引
-│   ├── camera_test.py              ← 摄像头测试
-│   ├── correction_manager.py      ← 纠错管理脚本 ⭐
+│   ├── correction_manager.py       ← 纠错管理脚本 ⭐
 │   ├── package_model.py            ← 模型打包脚本
 │   └── test_package.py             ← 部署包测试脚本
 ├── data/
@@ -456,39 +342,14 @@ pip uninstall torch torchvision
 pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
 ```
 
-**2. 摄像头无法开启**
-```bash
-# 检查摄像头权限
-# Windows：设置 > 隐闲 > 相机
-# Linux：sudo chmod 666 /dev/video0
-```
-
-**3. FAISS索引构建失败**
-```bash
-# 检查图片路径是否正确
-# 确保图片格式支持（jpg, png）
-# 检查图片是否损坏
-```
-
-**4. 识别准确率低**
+**2. 识别准确率低**
 - 增加训练数据量
 - 调整数据增强策略
 - 尝试不同的模型backbone
 - 使用纠错系统持续优化
 
-**5. 纠错图片不显示**
-- 确保纠错已成功应用
-- 刷新试剂详情页面
-- 检查数据库中的ReagentImage记录
-
 ### 日志查看
 ```bash
-# 后端日志
-# 直接查看终端输出
-
-# 前端日志
-# 打开浏览器开发者工具 > Console
-
 # 训练日志
 tensorboard --logdir logs
 ```
@@ -498,28 +359,25 @@ tensorboard --logdir logs
 ## 📝 更新日志
 
 ### v2.1 (最新)
-- ✨ 新增纠错管理系统
-  - 摄像头纠错功能
-  - 上传纠错功能
-  - 批量应用纠错
-  - 纠错统计和验证
-- 🐛 修复应用纠错后图片不显示在试剂详情的问题
-- 🐛 修复删除纠错记录时的数据一致性问题
-- 📝 完善纠错系统文档
-- 📦 新增部署包功能
-  - 模型打包脚本
-  - 离线部署支持
-  - 部署包测试工具
-
-### v2.0
-- ✨ 新增多试剂检测功能（YOLOv8）
-- ✨ 新增多物体识别API接口
-- ✨ 新增多试剂检测前端页面
-- 🐛 修复中文路径图片读取问题
-- 📝 完善文档和使用说明
-
-### v1.0
-- 🎉 初始版本发布
-- ✅ 单物体识别功能
-- ✅ 试剂录入和管理
-- ✅ 实时识别界面
+| 版本 | 类型 | 内容 |
+|------|------|------|
+| v2.1 | ✨ 新增 | 新增纠错管理系统 |
+|      |        | 摄像头纠错功能 |
+|      |        | 批量应用纠错 |
+|      |        | 纠错统计和验证 |
+|      | 🐛 修复 | 修复应用纠错后图片不显示在试剂详情的问题 |
+|      |        | 修复删除纠错记录时的数据一致性问题 |
+|      | 📝 文档 | 完善纠错系统文档 |
+|      | 📦 新增 | 新增部署包功能 |
+|      |        | 模型打包脚本 |
+|      |        | 离线部署支持 |
+|      |        | 部署包测试工具 |
+| v2.0 | ✨ 新增 | 新增多试剂检测功能（YOLOv8） |
+|      |        | 新增多物体识别API接口 |
+|      |        | 新增多试剂检测前端页面 |
+|      | 🐛 修复 | 修复中文路径图片读取问题 |
+|      | 📝 文档 | 完善文档和使用说明 |
+| v1.0 | 🎉 发布 | 初始版本发布 |
+|      | ✅ 功能 | 单物体识别功能 |
+|      |        | 试剂录入和管理 |
+|      |        | 实时识别界面 |

@@ -34,11 +34,12 @@ MODEL_CONFIG = {
 
     # 特征提取器类型：
     # - "efficientnet": 使用当前项目内置 EfficientNetEmbedder（需要/可选训练权重）
-    # - "dinov2": 使用 DINOv2 自监督基础模型提特征（transformers）
-    # - "clip": 使用 CLIP 视觉编码器提特征（transformers）
-    #
+    # - "dinov2": 使用 DINOv2 自监督基础模型提特征（transformers），细粒度识别强，自监督
+    # - "clip": 使用 CLIP 视觉编码器提特征（transformers），零样本能力强，通用性好
     # 小样本、角度不固定时，推荐 "dinov2" 或 "clip"
-    "feature_extractor": "clip",
+
+    # "feature_extractor": "dinov2",
+    "feature_extractor": "clip  ",
 
     # 基础模型名称（transformers hub id）
     # "dinov2_model_name": "facebook/dinov2-base",
