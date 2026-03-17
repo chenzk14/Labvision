@@ -24,9 +24,9 @@ const menuItems = [
   { key: 'dashboard', icon: <LineChartOutlined />, label: '系统概览' },
   { key: 'register', icon: <PlusCircleOutlined />, label: '试剂录入' },
   // { key: 'recognize', icon: <SearchOutlined />, label: '单试剂识别' },
-  { key: 'multiple', icon: <AppstoreOutlined />, label: '多试剂检测' },
-  { key: 'list', icon: <DatabaseOutlined />, label: '试剂库' },
+  { key: 'multiple', icon: <AppstoreOutlined />, label: '多试剂识别' },
   { key: 'correction', icon: <CheckCircleOutlined />, label: '纠错管理' },
+  { key: 'list', icon: <DatabaseOutlined />, label: '试剂库' },
 ]
 
 const pageMap = {

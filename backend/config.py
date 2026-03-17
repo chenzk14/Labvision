@@ -29,7 +29,8 @@ MODEL_CONFIG = {
     # 主干网络
     # efficientnet_b2 在 fine-grained 任务表现明显好于 b0
     # 显存占用仍可被 1050Ti 接受
-    "backbone": "efficientnet_b2",
+    # "backbone": "efficientnet_b2",
+    "backbone": "None",
 
     # 特征提取器类型：
     # - "efficientnet": 使用当前项目内置 EfficientNetEmbedder（需要/可选训练权重）
@@ -37,26 +38,26 @@ MODEL_CONFIG = {
     # - "clip": 使用 CLIP 视觉编码器提特征（transformers）
     #
     # 小样本、角度不固定时，推荐 "dinov2" 或 "clip"
-    "feature_extractor": "dinov2",
+    "feature_extractor": "clip",
 
     # 基础模型名称（transformers hub id）
-    "dinov2_model_name": "facebook/dinov2-base",
+    # "dinov2_model_name": "facebook/dinov2-base",
     "clip_model_name": "openai/clip-vit-base-patch32",
 
     # 特征向量维度
-    # 512 -> 384 可以减少过拟合
-    "embedding_dim": 384,
+    # DINOv2 输出特征维度：dinov2-base = 768
+    "embedding_dim": 512,
 
     # 输入图像尺寸
     # efficientnet 推荐 260
-    "img_size": 260,
+    "img_size": 224,
 
     # ArcFace 参数
     "arcface_margin": 0.35,
     "arcface_scale": 32,
 
     # 是否使用 Dropout
-    "dropout": 0.3,
+    "dropout": 0.0,
 
     # 是否使用特征归一化
     "feature_norm": True,
@@ -103,8 +104,11 @@ TRAIN_CONFIG = {
     "triplet_margin": 0.3,
 
     # Loss权重
-    "arcface_weight": 1.0,
-    "triplet_weight": 0.5,
+    # "arcface_weight": 1.0,
+    # "triplet_weight": 0.5,
+
+    "arcface_weight": 0,
+    "triplet_weight": 0,
 
     # temperature
     "temperature": 0.05,

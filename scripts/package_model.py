@@ -470,13 +470,16 @@ for img_path in Path("images").glob("*.jpg"):
     # 6. 创建requirements.txt
     requirements = '''# 试剂识别模型依赖
 
-torch>=1.9.0
-torchvision>=0.10.0
-faiss-cpu>=1.7.0
-opencv-python>=4.5.0
-pillow>=8.0.0
-albumentations>=0.5.0
-numpy>=1.19.0
+--extra-index-url https://download.pytorch.org/whl/cu117
+
+torch==2.0.1+cu117
+torchvision==0.15.2+cu117
+numpy==1.24.4
+opencv-python==4.8.1.78
+pillow==10.0.1
+albumentations==1.3.1
+timm==0.9.12
+faiss-cpu==1.7.4
 '''
 
     req_path = output_path / "requirements.txt"

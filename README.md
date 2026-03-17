@@ -17,25 +17,9 @@
 
 ### 1. 创建Conda环境
 ```bash
-conda create -n reagent_vision python=3.10 -y
-conda activate reagent_vision
+conda env create -f environment.yml
+conda activate reagent-vision
 ```
-
-### 2. 安装PyTorch（CUDA 11.7版本）
-```bash
-pip install torch==2.0.1+cu117 torchvision==0.15.2+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
-```
-
-### 3. 安装其他依赖
-```bash
-# 核心依赖
-pip install timm faiss-cpu fastapi uvicorn sqlalchemy aiosqlite opencv-python albumentations pydantic python-multipart tqdm scikit-learn
-
-# 可选：使用 DINOv2 / CLIP 作为特征提取器（小样本更稳）
-pip install transformers accelerate safetensors
-
-# 多物体识别依赖（YOLOv8）
-pip install ultralytics
 
 # 前端依赖（可选，如果需要开发前端）
 cd forntend
@@ -62,8 +46,6 @@ data/
 │   ├── 乙醇002/
 │   │   ├── 1773279742602_front.jpg
 │   │   └── ...
-│   └── corrections/           # 纠错图片
-│       └── ...
 ├── embeddings/                 # FAISS索引文件
 │   ├── reagent.index
 │   └── metadata.json
@@ -153,7 +135,7 @@ python scripts/camera_test.py
 
 ## 🚀 启动服务
 
-### 方式一：分别启动
+### 分别启动
 
 **后端API服务**
 ```bash
@@ -164,11 +146,6 @@ python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000
 ```bash
 cd forntend
 npm start
-```
-
-### 方式二：使用启动脚本（Windows）
-```bash
-start.bat
 ```
 
 ### 访问地址
@@ -373,7 +350,6 @@ reagent-vision/
 │   ├── TUTORIAL.md                 ← 手把手教程
 │   └── correction_workflow.md       ← 纠错系统使用指南 ⭐
 ├── Environment.yml                 ← Conda环境配置
-├── start.bat                       ← Windows启动脚本
 └── README.md                       ← 本文件
 ```
 

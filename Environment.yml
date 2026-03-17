@@ -7,35 +7,39 @@ dependencies:
   - python=3.10
   - pip
   - pip:
-    # PyTorch (CUDA 11.7 适配1050Ti)
-    - torch==2.0.1+cu117
-    - torchvision==0.15.2+cu117
-    - torchaudio==2.0.2
-    --extra-index-url https://download.pytorch.org/whl/cu117
+      - --extra-index-url https://download.pytorch.org/whl/cu117
+      # PyTorch (CUDA 11.7 适配1050Ti)
+      - torch==2.0.1+cu117
+      - torchvision==0.15.2+cu117
+      - torchaudio==2.0.2
 
-    # 深度学习核心
-    - timm==0.9.12          # EfficientNet等模型库
-    - faiss-cpu==1.7.4      # 向量检索（1050Ti用cpu版更稳定）
-    - numpy==1.24.4
-    - opencv-python==4.8.1.78
-    - Pillow==10.0.1
-    - albumentations==1.3.1  # 数据增强
+      # 深度学习核心
+      - timm==0.9.12          # EfficientNet等模型库
+      - faiss-cpu==1.7.4      # 向量检索（1050Ti用cpu版更稳定）
+      - numpy==1.24.4
+      - opencv-python==4.8.1.78
+      - Pillow==10.0.1
+      - albumentations==1.3.1  # 数据增强
+      - transformers==4.43.3
+      - accelerate==0.32.1
+      - safetensors==0.4.4
+      - ultralytics==8.1.0
 
-    # 后端API
-    - fastapi==0.104.1
-    - uvicorn==0.24.0
-    - python-multipart==0.0.6
-    - sqlalchemy==2.0.23
-    - aiosqlite==0.19.0
-    - pydantic==2.5.0
+      # 后端API
+      - fastapi==0.104.1
+      - uvicorn==0.24.0
+      - python-multipart==0.0.6
+      - sqlalchemy==2.0.23
+      - aiosqlite==0.19.0
+      - pydantic==2.5.0
 
-    # 训练辅助
-    - tqdm==4.66.1
-    - scikit-learn==1.3.2
-    - matplotlib==3.8.2
-    - tensorboard==2.15.1
-    - PyYAML==6.0.1
+      # 训练辅助
+      - tqdm==4.66.1
+      - scikit-learn==1.3.2
+      - matplotlib==3.8.2
+      - tensorboard==2.15.1
+      - PyYAML==6.0.1
 
-    # 工具
-    - requests==2.31.0
-    - python-dotenv==1.0.0
+      # 工具
+      - requests==2.31.0
+      - python-dotenv==1.0.0
