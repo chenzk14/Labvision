@@ -1,13 +1,13 @@
 // frontend/src/pages/ReagentRegister.jsx
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Form, Input, InputNumber, Button, Upload, Steps,
   Card, Row, Col, message, Tag, Space, Divider, Alert,
-  Select, DatePicker
+  Select, DatePicker, Modal
 } from 'antd'
 import {
   CameraOutlined, UploadOutlined, CheckCircleOutlined,
-  LoadingOutlined, PlusOutlined,
+  LoadingOutlined, PlusOutlined, CloseOutlined,
 } from '@ant-design/icons'
 import { api } from '../services/api'
 
@@ -23,16 +23,30 @@ export default function ReagentRegister() {
   const [cameraActive, setCameraActive] = useState(false)
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  const [existingReagents, setExistingReagents] = useState([])
+  const [reagentsLoading, setReagentsLoading] = useState(false)
+  const [reagentsMap, setReagentsMap] = useState(new Map())
+  const [nameInputMode, setNameInputMode] = useState('input')
 
   // 步骤1：创建试剂信息
   const handleCreateReagent = async (values) => {
     setLoading(true)
     try {
-      const res = await api.createReagent(values)
-      if (res.success) {
-        setCreatedReagentId(res.reagent_id)
-        message.success(`试剂 ${res.reagent_id} 创建成功！`)
+      const reagentName = values.reagent_name
+      const existingId = reagentsMap.get(reagentName)
+      
+      if (existingId) {
+        setCreatedReagentId(existingId)
+        message.success(`使用现有试剂 ${existingId}！`)
         setCurrentStep(1)
+      } else {
+        const res = await api.createReagent(values)
+        if (res.success) {
+          setCreatedReagentId(res.reagent_id)
+          message.success(`试剂 ${res.reagent_id} 创建成功！`)
+          setCurrentStep(1)
+          await loadExistingReagents()
+        }
       }
     } catch (err) {
       message.error(err.response?.data?.detail || '创建失败')
@@ -112,6 +126,44 @@ export default function ReagentRegister() {
 
   const [uploadFile, setUploadFile] = useState(null)
 
+  const deleteRegisteredImage = (index) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这张已注册的图片吗？',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        setRegisteredImages(prev => prev.filter((_, idx) => idx !== index))
+        message.success('已删除')
+      }
+    })
+  }
+
+  const loadExistingReagents = async () => {
+    setReagentsLoading(true)
+    try {
+      const data = await api.listReagents()
+      const names = [...new Set(data.map(r => r.reagent_name).filter(Boolean))]
+      setExistingReagents(names)
+      const map = new Map()
+      data.forEach(r => {
+        if (r.reagent_name) {
+          map.set(r.reagent_name, r.reagent_id)
+        }
+      })
+      setReagentsMap(map)
+    } catch (e) {
+      console.error('加载试剂列表失败', e)
+    } finally {
+      setReagentsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadExistingReagents()
+  }, [])
+
   const handleUpload = async ({ file }) => {
     setUploadFile(file)
     const reader = new FileReader()
@@ -141,74 +193,105 @@ export default function ReagentRegister() {
         <Card title="试剂基本信息">
           <Form
             form={form}
-            layout="vertical"
+            layout="horizontal"
             onFinish={handleCreateReagent}
-            style={{ maxWidth: 700 }}
+            style={{ maxWidth: 600 }}
           >
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="reagent_name"
-                  label="试剂名称"
-                  rules={[{ required: true, message: '请输入试剂名称' }]}
-                >
-                  <Input placeholder="乙醇" size="large" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="reagent_id"
-                  label="试剂唯一ID（可选）"
-                  rules={[
-                    { pattern: /^[\u4e00-\u9fa5\w-]{1,20}$/, message: 'ID不超过20字符' }
-                  ]}
-                  extra="留空则自动生成（例：乙醇001，盐酸003）"
-                >
-                  <Input placeholder="留空自动生成" size="large" />
-                </Form.Item>
-              </Col>
-            </Row>
+            <Col>
+              <Form.Item
+                name="reagent_name"
+                layout="vertical"
+                label={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {/*<span>试剂名称</span>*/}
+                    <Button.Group size="middle" style={{paddingBottom: 5}}>
+                      <Button
+                        type={nameInputMode === 'input' ? 'primary' : 'default'}
+                        onClick={() => setNameInputMode('input')}
+                      >
+                        输入新试剂
+                      </Button>
+                      <Button
+                        type={nameInputMode === 'select' ? 'primary' : 'default'}
+                        onClick={() => setNameInputMode('select')}
+                      >
+                        选择现有试剂
+                      </Button>
+                    </Button.Group>
+                  </div>
+                }
+                rules={[{ required: true, message: '请输入试剂名称' }]}
+              >
+                {nameInputMode === 'input' ? (
+                  <Input
+                    placeholder="输入新试剂名称"
+                    size="middle"
+                  />
+                ) : (
+                  <Select
+                    showSearch
+                    placeholder="选择现有试剂"
+                    size="middle"
+                    loading={reagentsLoading}
+                    options={existingReagents.map(name => ({
+                      value: name,
+                      label: name
+                    }))}
+                    notFoundContent={reagentsLoading ? '加载中...' : '暂无试剂'}
+                  />
+                )}
+              </Form.Item>
+            </Col>
+            <Col >
+              <Form.Item
+                name="reagent_id"
+                label="试剂ID"
+                rules={[
+                  { pattern: /^[\u4e00-\u9fa5\w-]{1,20}$/, message: 'ID不超过20字符' }
+                ]}
+                // extra="留空则自动生成（例：乙醇001，盐酸003）"
+                style={{marginTop: 10}}
+              >
+                <Input placeholder="留空则自动生成（例：乙醇001，盐酸003）" size="middle" />
+              </Form.Item>
+            </Col>
+
+            <Form.Item name="cas_number" label="CAS号">
+              <Input placeholder="64-17-5" />
+            </Form.Item>
+
+            <Form.Item name="manufacturer" label="厂商">
+              <Input placeholder="国药集团" />
+            </Form.Item>
+
+            {/*<Col span={8}>*/}
+            {/*  <Form.Item name="batch_number" label="批次号">*/}
+            {/*    <Input placeholder="2024010001" />*/}
+            {/*  </Form.Item>*/}
+            {/*</Col>*/}
 
             <Row gutter={16}>
-              <Col span={8}>
-                <Form.Item name="cas_number" label="CAS号">
-                  <Input placeholder="64-17-5" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="manufacturer" label="厂商">
-                  <Input placeholder="国药集团" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="batch_number" label="批次号">
-                  <Input placeholder="2024010001" />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={8}>
-                <Form.Item name="quantity" label="数量">
-                  <InputNumber style={{ width: '100%' }} min={0} placeholder="500" />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="unit" label="单位">
-                  <Select placeholder="选择单位">
-                    <Select.Option value="mL">mL</Select.Option>
-                    <Select.Option value="L">L</Select.Option>
-                    <Select.Option value="g">g</Select.Option>
-                    <Select.Option value="kg">kg</Select.Option>
-                    <Select.Option value="瓶">瓶</Select.Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="expiry_date" label="有效期">
-                  <Input placeholder="2026-01-01" />
-                </Form.Item>
-              </Col>
+              {/*<Col span={8}>*/}
+              {/*  <Form.Item name="quantity" label="数量">*/}
+              {/*    <InputNumber style={{ width: '100%' }} min={0} placeholder="500" />*/}
+              {/*  </Form.Item>*/}
+              {/*</Col>*/}
+              {/*<Col span={8}>*/}
+              {/*  <Form.Item name="unit" label="单位">*/}
+              {/*    <Select placeholder="选择单位">*/}
+              {/*      <Select.Option value="mL">mL</Select.Option>*/}
+              {/*      <Select.Option value="L">L</Select.Option>*/}
+              {/*      <Select.Option value="g">g</Select.Option>*/}
+              {/*      <Select.Option value="kg">kg</Select.Option>*/}
+              {/*      <Select.Option value="瓶">瓶</Select.Option>*/}
+              {/*    </Select>*/}
+              {/*  </Form.Item>*/}
+              {/*</Col>*/}
+              {/*<Col span={8}>*/}
+              {/*  <Form.Item name="expiry_date" label="有效期">*/}
+              {/*    <Input placeholder="2026-01-01" />*/}
+              {/*  </Form.Item>*/}
+              {/*</Col>*/}
             </Row>
 
             <Form.Item name="location" label="存放位置">
@@ -358,6 +441,26 @@ export default function ReagentRegister() {
                         </Tag>
                         <CheckCircleOutlined
                           style={{ position: 'absolute', top: 4, right: 4, color: '#52c41a', fontSize: 16 }}
+                        />
+                        <Button
+                          type="text"
+                          danger
+                          icon={<CloseOutlined />}
+                          size="small"
+                          onClick={() => deleteRegisteredImage(idx)}
+                          style={{
+                            position: 'absolute',
+                            bottom: 4,
+                            right: 4,
+                            background: 'rgba(255, 255, 255, 0.9)',
+                            borderRadius: '50%',
+                            width: 28,
+                            height: 28,
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
                         />
                       </div>
                     </Col>

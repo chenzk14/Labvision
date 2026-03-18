@@ -12,11 +12,14 @@
 """
 
 import argparse
-import sys
 from pathlib import Path
+import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# 将项目根目录加入 sys.path
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+sys.path.insert(0, str(PROJECT_ROOT))
 
+from backend import config
 
 def main():
     parser = argparse.ArgumentParser(description="训练试剂识别模型")
@@ -33,11 +36,11 @@ def main():
     args = parser.parse_args()
 
     # 更新配置
-    from backend import config
-    config.TRAIN_CONFIG["epochs"] = args.epochs
-    config.TRAIN_CONFIG["batch_size"] = args.batch_size
-    config.TRAIN_CONFIG["lr"] = args.lr
-    config.MODEL_CONFIG["img_size"] = args.img_size
+    # from backend import config
+    # config.TRAIN_CONFIG["epochs"] = args.epochs
+    # config.TRAIN_CONFIG["batch_size"] = args.batch_size
+    # config.TRAIN_CONFIG["lr"] = args.lr
+    # config.MODEL_CONFIG["img_size"] = args.img_size
 
     # 检查数据目录
     data_path = Path(args.data_dir).resolve()
@@ -54,8 +57,8 @@ def main():
 
     # 统计数据
     classes = [d for d in data_path.iterdir() if d.is_dir()]
-    print(f"\n📊 数据统计:")
-    print(f"  类别数: {len(classes)}")
+    # print(f"\n📊 数据统计:")
+    # print(f"  类别数: {len(classes)}")
     for cls in sorted(classes)[:10]:
         imgs = list(cls.glob("*.[jJpP][pPnN][gG]"))
         print(f"  {cls.name}: {len(imgs)} 张图片")
@@ -68,7 +71,9 @@ def main():
 
     print(f"\n🚀 开始训练...")
     print(f"  数据目录: {data_path.absolute()}")
-    print(f"  Epochs: {args.epochs} | Batch: {args.batch_size} | LR: {args.lr}")
+    # print(f"  Epochs: {args.epochs} | Batch: {args.batch_size} | LR: {args.lr}")
+    print(
+        f"  Epochs: {config.TRAIN_CONFIG['epochs']} | Batch: {config.TRAIN_CONFIG['batch_size']} | LR: {config.TRAIN_CONFIG['lr']}")
 
     from backend.core.trainer import ReagentTrainer
     trainer = ReagentTrainer(data_dir=str(data_path))

@@ -22,10 +22,9 @@ class _DependencyMissing(RuntimeError):
 def _require_transformers():
     try:
         from transformers import AutoImageProcessor, AutoModel  # noqa: F401
-        from transformers import CLIPImageProcessor, CLIPModel  # noqa: F401
     except Exception as e:  # pragma: no cover
         raise _DependencyMissing(
-            "未安装 transformers 依赖，无法使用 DINOv2/CLIP 特征提取。\n"
+            "未安装 transformers 依赖，无法使用 DINOv2 特征提取。\n"
             "请先安装：pip install transformers accelerate safetensors\n"
             f"原始错误: {e}"
         )
@@ -63,34 +62,10 @@ class DinoV2Embedder(nn.Module):
         return F.normalize(cls, p=2, dim=1)
 
 
-class CLIPVisionEmbedder(nn.Module):
-    """
-    CLIP vision encoder (transformers).
-    Output: L2-normalized image features (already projected to projection_dim).
-    """
-
-    def __init__(self, model_name: str):
-        super().__init__()
-        _require_transformers()
-        from transformers import CLIPModel
-
-        self.model_name = model_name
-        self.model = CLIPModel.from_pretrained(model_name)
-
-    @property
-    def embedding_dim(self) -> int:
-        return int(self.model.config.projection_dim)
-
-    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        feats = self.model.get_image_features(pixel_values=pixel_values)  # [B, D]
-        return F.normalize(feats, p=2, dim=1)
-
-
 def create_foundation_embedder(
     feature_extractor: str,
     *,
     dinov2_model_name: str = "facebook/dinov2-base",
-    clip_model_name: str = "openai/clip-vit-base-patch32",
     device: str = "cpu",
 ) -> EmbedderBundle:
     """
@@ -100,7 +75,7 @@ def create_foundation_embedder(
     and returns pixel_values ready for the model.
     """
     _require_transformers()
-    from transformers import AutoImageProcessor, CLIPImageProcessor
+    from transformers import AutoImageProcessor
 
     fe = feature_extractor.lower().strip()
 
@@ -125,22 +100,4 @@ def create_foundation_embedder(
             model_id=f"dinov2:{dinov2_model_name}",
         )
 
-    if fe == "clip":
-        processor = CLIPImageProcessor.from_pretrained(clip_model_name)
-        model = CLIPVisionEmbedder(clip_model_name).to(device).eval()
-
-        def preprocess(x: torch.Tensor) -> torch.Tensor:
-            x_cpu = x.detach().cpu()
-            images = [img for img in x_cpu]
-            inputs = processor(images=images, return_tensors="pt", do_rescale=False)
-            return inputs["pixel_values"].to(device)
-
-        return EmbedderBundle(
-            model=model,
-            preprocess=preprocess,
-            embedding_dim=model.embedding_dim,
-            model_id=f"clip:{clip_model_name}",
-        )
-
-    raise ValueError(f"不支持的 feature_extractor: {feature_extractor}（可选：dinov2/clip）")
-
+    raise ValueError(f"不支持的 feature_extractor: {feature_extractor}（可选：dinov2）")

@@ -181,8 +181,7 @@ reagent-vision/
 ├── backend/
 │   ├── config.py                    ← 所有超参数配置
 │   ├── models/
-│   │   ├── metric_model.py          ← EfficientNet + ArcFace 核心模型
-│   │   └── foundation_embedder.py   ← DINOv2/CLIP 基础模型
+│   │   └── metric_model.py          ← EfficientNet-B2 + ArcFace 核心模型
 │   ├── core/
 │   │   ├── dataset.py               ← 数据集 + 增强策略
 │   │   ├── trainer.py               ← 训练引擎（混合精度/早停）

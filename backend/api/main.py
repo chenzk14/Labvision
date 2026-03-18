@@ -146,6 +146,26 @@ async def get_status():
     }
 
 
+@app.post("/api/index/save")
+async def save_index(force: bool = False):
+    """
+    手动保存FAISS索引
+    
+    Args:
+        force: 是否强制保存（忽略批量保存策略）
+    
+    Returns:
+        保存结果
+    """
+    engine = get_engine()
+    saved = engine._save_index(force=force)
+    return {
+        "success": True,
+        "saved": saved,
+        "message": "索引保存成功" if saved else "索引未保存（批量保存策略）",
+    }
+
+
 # ===================== 试剂管理 =====================
 @app.post("/api/reagents", response_model=dict)
 async def create_reagent(

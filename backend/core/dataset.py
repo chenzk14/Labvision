@@ -169,9 +169,11 @@ class ReagentDataset(Dataset):
             root_dir: str,
             transform=None,
             min_samples: int = 1,
+            verbose: bool = True,
     ):
         self.root_dir = Path(root_dir)
         self.transform = transform
+        self.verbose = verbose
 
         # 扫描数据集
         self.class_to_idx: Dict[str, int] = {}
@@ -182,47 +184,37 @@ class ReagentDataset(Dataset):
 
     def _scan_dataset(self, min_samples: int):
         """扫描目录，构建类别→索引映射"""
-        class_dirs = sorted([
-            d for d in self.root_dir.iterdir()
-            if d.is_dir()
-        ])
-
+        class_dirs = sorted([d for d in self.root_dir.iterdir() if d.is_dir()])
         valid_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
         idx = 0
 
         for class_dir in class_dirs:
-            try:
-                # 尝试列出目录中的文件
-                images = []
-                for f in class_dir.iterdir():
-                    if f.is_file() and f.suffix.lower() in valid_exts:
-                        # 检查文件是否可读
-                        try:
-                            # 尝试打开文件以验证其可读性
-                            with open(f, 'rb') as test_file:
-                                test_file.read(1)  # 读取1字节测试
-                            images.append(f)
-                        except (IOError, OSError, UnicodeDecodeError):
-                            print(f"[Dataset] 跳过不可读文件: {f}")
-                            continue
+            images = []
+            for f in class_dir.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_exts:
+                    try:
+                        with open(f, 'rb') as test_file:
+                            test_file.read(1)
+                        images.append(f)
+                    except (IOError, OSError, UnicodeDecodeError):
+                        continue
 
-                if len(images) < min_samples:
+            if len(images) < min_samples:
+                if self.verbose:
                     print(f"[Dataset] 跳过 {class_dir.name}：样本不足({len(images)})")
-                    continue
-
-                self.class_to_idx[class_dir.name] = idx
-                self.idx_to_class[idx] = class_dir.name
-
-                for img_path in images:
-                    self.samples.append((str(img_path.resolve()), idx))
-
-                idx += 1
-                print(f"[Dataset] 加载类别 {class_dir.name}: {len(images)} 张图片")
-            except Exception as e:
-                print(f"[Dataset] 处理目录 {class_dir} 时出错: {str(e)}")
                 continue
 
-        print(f"[Dataset] 共 {len(self.class_to_idx)} 类试剂，{len(self.samples)} 张图片")
+            self.class_to_idx[class_dir.name] = idx
+            self.idx_to_class[idx] = class_dir.name
+            for img_path in images:
+                self.samples.append((str(img_path.resolve()), idx))
+            idx += 1
+
+            if self.verbose:
+                print(f"[Dataset] 加载类别 {class_dir.name}: {len(images)} 张图片")
+
+        if self.verbose:
+            print(f"[Dataset] 共 {len(self.class_to_idx)} 类试剂，{len(self.samples)} 张图片")
 
     @property
     def num_classes(self) -> int:
@@ -388,11 +380,12 @@ def create_dataloaders(
     train_subset = Subset(full_dataset, train_idx)
     val_subset = Subset(full_dataset, val_idx)
 
-    # 验证集用不同transform
+    # 验证集用不同transform（不打印信息）
     val_dataset = ReagentDataset(
         root_dir=data_dir,
         transform=get_val_transforms(img_size),
         min_samples=1,
+        verbose=False,
     )
     val_subset = Subset(val_dataset, val_idx)
 

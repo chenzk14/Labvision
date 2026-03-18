@@ -26,43 +26,40 @@ for d in [IMAGES_DIR, EMBEDDINGS_DIR, DB_DIR, MODELS_DIR, LOGS_DIR]:
 # ===================== 模型配置 =====================
 MODEL_CONFIG = {
 
+    # 模型类型: 单流EfficientNet + Metric Learning
+    "model_type": "single_efficientnet",
+
     # 主干网络
     # efficientnet_b2 在 fine-grained 任务表现明显好于 b0
     # 显存占用仍可被 1050Ti 接受
     "backbone": "efficientnet_b2",
-    # "backbone": "None",
 
-    # 特征提取器类型：
-    # - "efficientnet": 使用当前项目内置 EfficientNetEmbedder（需要/可选训练权重）
-    # - "dinov2": 使用 DINOv2 自监督基础模型提特征（transformers），细粒度识别强，自监督
-    # - "clip": 使用 CLIP 视觉编码器提特征（transformers），零样本能力强，通用性好
-    # 小样本、角度不固定时，推荐 "dinov2" 或 "clip"
-
-    # "feature_extractor": "dinov2",
-    # "feature_extractor": "clip",
+    # 特征提取器类型
     "feature_extractor": "efficientnet",
 
-    # 基础模型名称（transformers hub id）
-    # "dinov2_model_name": "facebook/dinov2-base",
-    "clip_model_name": "openai/clip-vit-base-patch32",
-
     # 特征向量维度
-    # DINOv2 输出特征维度：dinov2-base = 768
-    "embedding_dim": 512,
+    "embedding_dim": 256,
 
     # 输入图像尺寸
-    # efficientnet 推荐 260
-    "img_size": 224,
+    # efficientnet_b2 推荐 260
+    "img_size": 260,
 
     # ArcFace 参数
     "arcface_margin": 0.35,
-    "arcface_scale": 32,
+    "arcface_scale": 30,
 
     # 是否使用 Dropout
-    "dropout": 0.0,
+    "dropout": 0.3,
 
     # 是否使用特征归一化
     "feature_norm": True,
+
+    # Triplet Loss 参数
+    "triplet_margin": 0.3,
+    "triplet_weight": 0.5,
+
+    # ArcFace Loss 权重
+    "arcface_weight": 1.0,
 }
 
 # ===================== 训练配置 =====================
@@ -75,7 +72,7 @@ TRAIN_CONFIG = {
     "epochs": 120,
 
     # 初始学习率
-    "lr": 2e-4,
+    "lr": 5e-5,
 
     # 权重衰减
     "weight_decay": 5e-5,
@@ -93,30 +90,27 @@ TRAIN_CONFIG = {
     "aug_prob": 0.8,
 
     # mixup
-    "use_mixup": True,
+    "use_mixup": False,
     "mixup_alpha": 0.2,
 
     # label smoothing
-    "label_smoothing": 0.1,
+    "label_smoothing": 0.0,
 
     # 验证集比例
-    "val_split": 0.2,
+    "val_split": 0.3,
 
     # Triplet Loss
     "triplet_margin": 0.3,
 
     # Loss权重
-    # "arcface_weight": 1.0,
-    # "triplet_weight": 0.5,
-
-    "arcface_weight": 0,
-    "triplet_weight": 0,
+    "arcface_weight": 0.5,
+    "triplet_weight": 1.0,
 
     # temperature
     "temperature": 0.05,
 
     # early stop
-    "early_stop_patience": 20,
+    "early_stop_patience": 30,
 
     # checkpoint
     "save_every": 5,
@@ -149,8 +143,6 @@ FAISS_CONFIG = {
     "index_type": "HNSW",
 
     # 向量维度
-    # 注意：当 feature_extractor 为 dinov2/clip 时，实际维度将由模型决定，
-    # 这里仅作为默认值保留（避免影响旧逻辑）。
     "embedding_dim": MODEL_CONFIG["embedding_dim"],
 
     # HNSW参数
@@ -164,14 +156,14 @@ FAISS_CONFIG = {
 INFERENCE_CONFIG = {
 
     # 相似度阈值
-    "similarity_threshold": 0.70,
+    "similarity_threshold": 0.68,
 
     # TopK
     "topk": 5,
 
-    # TTA
-    "use_tta": True,
-    "tta_augments": 8,
+    # TTA 关闭 TTA（当前阶段）
+    "use_tta": False,
+    # "tta_augments": 8,
 
     # FAISS index
     "faiss_index_path": str(EMBEDDINGS_DIR / "reagent.index"),
@@ -185,9 +177,6 @@ INFERENCE_CONFIG = {
 
 # ===================== 设备 =====================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(torch.cuda.is_available())
-print(torch.cuda.get_device_name(0))
-print(f"[Config] 使用设备: {DEVICE}")
 
 # ===================== 数据库 =====================
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_DIR}/reagent.db"

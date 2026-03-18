@@ -14,6 +14,7 @@ import json
 import pickle
 import time
 import shutil
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
@@ -28,8 +29,8 @@ import albumentations as A
 
 from backend.config import INFERENCE_CONFIG, MODEL_CONFIG, DEVICE, IMAGES_DIR
 from backend.models.metric_model import EfficientNetEmbedder
-from backend.models.foundation_embedder import create_foundation_embedder
 from backend.core.dataset import get_val_transforms
+from backend.models.metric_model import ReagentRecognitionModel
 
 
 class FAISSIndex:
@@ -43,9 +44,18 @@ class FAISSIndex:
     def __init__(self, embedding_dim: int = 512):
         self.embedding_dim = embedding_dim
         # 内积索引（对于L2归一化向量等价于余弦相似度）
-        self.index = faiss.IndexFlatIP(embedding_dim)
+        # self.index = faiss.IndexFlatIP(embedding_dim)
+        self.index = faiss.IndexHNSWFlat(embedding_dim, 32)
+        self.index.hnsw.efConstruction = 200
+        self.index.hnsw.efSearch = 64
         # 向量ID → 元数据映射
         self.id_map: List[Dict[str, Any]] = []
+        # 线程锁保护并发访问
+        self._lock = threading.RLock()
+        # 批量保存计数器
+        self._pending_saves = 0
+        # 最后保存时间
+        self._last_save_time = 0
 
     def add(self, embedding: np.ndarray, metadata: Dict[str, Any]) -> int:
         """
@@ -58,16 +68,18 @@ class FAISSIndex:
         Returns:
             vector_id: 在索引中的位置
         """
-        # 确保正确形状 [1, embedding_dim]
-        vec = embedding.reshape(1, -1).astype(np.float32)
-        # L2归一化（保险起见再次归一化）
-        faiss.normalize_L2(vec)
+        with self._lock:
+            # 确保正确形状 [1, embedding_dim]
+            vec = embedding.reshape(1, -1).astype(np.float32)
+            # L2归一化（保险起见再次归一化）
+            faiss.normalize_L2(vec)
 
-        vector_id = self.index.ntotal
-        self.index.add(vec)
-        self.id_map.append(metadata)
+            vector_id = self.index.ntotal
+            self.index.add(vec)
+            self.id_map.append(metadata)
+            self._pending_saves += 1
 
-        return vector_id
+            return vector_id
 
     def search(
             self,
@@ -81,36 +93,88 @@ class FAISSIndex:
             similarities: 相似度分数 [k]
             metadatas: 对应的元数据列表
         """
-        if self.index.ntotal == 0:
-            return np.array([]), []
+        with self._lock:
+            if self.index.ntotal == 0:
+                return np.array([]), []
 
-        q = query.reshape(1, -1).astype(np.float32)
-        faiss.normalize_L2(q)
+            q = query.reshape(1, -1).astype(np.float32)
+            faiss.normalize_L2(q)
 
-        k = min(k, self.index.ntotal)
-        scores, indices = self.index.search(q, k)
+            k = min(k, self.index.ntotal)
+            scores, indices = self.index.search(q, k)
 
-        similarities = scores[0]
-        metadatas = [self.id_map[i] for i in indices[0] if i >= 0]
+            similarities = scores[0]
+            metadatas = [self.id_map[i] for i in indices[0] if i >= 0]
 
-        return similarities, metadatas
+            return similarities, metadatas
 
-    def save(self, index_path: str, metadata_path: str):
-        """持久化索引"""
-        faiss.write_index(self.index, index_path)
-        with open(metadata_path, "w", encoding="utf-8") as f:
-            json.dump(self.id_map, f, ensure_ascii=False, indent=2)
-        print(f"[FAISS] 已保存 {self.index.ntotal} 个向量")
+    def save(self, index_path: str, metadata_path: str, force: bool = False):
+        """
+        持久化索引
+        
+        Args:
+            index_path: 索引文件路径
+            metadata_path: 元数据文件路径
+            force: 是否强制保存（忽略批量保存策略）
+        """
+        with self._lock:
+            # 批量保存策略：每10次操作或超过5秒才保存
+            current_time = time.time()
+            if not force and self._pending_saves < 10 and (current_time - self._last_save_time) < 5:
+                return False
+            
+            # 使用临时文件+原子替换的方式保存
+            index_path = Path(index_path)
+            metadata_path = Path(metadata_path)
+            
+            # 创建临时文件
+            temp_index_path = index_path.with_suffix('.tmp')
+            temp_metadata_path = metadata_path.with_suffix('.tmp')
+            
+            try:
+                # 保存到临时文件
+                faiss.write_index(self.index, str(temp_index_path))
+                with open(temp_metadata_path, "w", encoding="utf-8") as f:
+                    json.dump(self.id_map, f, ensure_ascii=False, indent=2)
+                
+                # 原子替换
+                temp_index_path.replace(index_path)
+                temp_metadata_path.replace(metadata_path)
+                
+                self._pending_saves = 0
+                self._last_save_time = current_time
+                print(f"[FAISS] 已保存 {self.index.ntotal} 个向量")
+                return True
+            except Exception as e:
+                print(f"[FAISS] 保存失败: {e}")
+                # 清理临时文件
+                if temp_index_path.exists():
+                    temp_index_path.unlink()
+                if temp_metadata_path.exists():
+                    temp_metadata_path.unlink()
+                return False
 
     def load(self, index_path: str, metadata_path: str) -> bool:
         """加载索引"""
-        if not Path(index_path).exists():
-            return False
-        self.index = faiss.read_index(index_path)
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            self.id_map = json.load(f)
-        print(f"[FAISS] 加载完成，共 {self.index.ntotal} 个向量")
-        return True
+        with self._lock:
+            if not Path(index_path).exists():
+                return False
+            
+            try:
+                self.index = faiss.read_index(index_path)
+                with open(metadata_path, "r", encoding="utf-8") as f:
+                    self.id_map = json.load(f)
+                
+                # 验证索引完整性
+                if len(self.id_map) != self.index.ntotal:
+                    print(f"[FAISS] 警告: 元数据数量({len(self.id_map)})与索引向量数({self.index.ntotal})不一致")
+                    return False
+                
+                print(f"[FAISS] 加载完成，共 {self.index.ntotal} 个向量")
+                return True
+            except Exception as e:
+                print(f"[FAISS] 加载失败: {e}")
+                return False
 
     @property
     def total(self) -> int:
@@ -128,83 +192,93 @@ class ReagentRecognitionEngine:
     """
 
     def __init__(self):
-        self.feature_extractor = (MODEL_CONFIG.get("feature_extractor") or "efficientnet").lower().strip()
         self.img_size = MODEL_CONFIG["img_size"]
         self.threshold = INFERENCE_CONFIG["similarity_threshold"]
 
         # 初始化嵌入提取器
         self.embedder = None
-        self.model_id = None
 
-        # 预处理：默认沿用 albumentations（efficientnet）
+        # 预处理：使用 albumentations（efficientnet）
         self.transform = get_val_transforms(self.img_size)
-        self.preprocess_mode = "albumentations"
 
         # FAISS索引
-        # embedding_dim 可能由基础模型决定（dinov2/clip）
-        self.embedding_dim = MODEL_CONFIG["embedding_dim"]
-        self.faiss_index = FAISSIndex(self.embedding_dim)
+        self.embedding_dim = None
+        self.faiss_index = None
 
         # 加载模型和索引
         self._load_model()
         self._load_index()
 
     def _load_model(self):
-        """加载训练好的模型"""
-        if self.feature_extractor in ("dinov2", "clip"):
-            bundle = create_foundation_embedder(
-                self.feature_extractor,
-                dinov2_model_name=MODEL_CONFIG.get("dinov2_model_name", "facebook/dinov2-base"),
-                clip_model_name=MODEL_CONFIG.get("clip_model_name", "openai/clip-vit-base-patch32"),
-                device=DEVICE,
-            )
-            self.embedder = bundle.model
-            self.embedding_dim = bundle.embedding_dim
-            self.model_id = bundle.model_id
-            self.preprocess_mode = "foundation"
-            self.foundation_preprocess = bundle.preprocess
-
-            # 重置 FAISS 维度（避免沿用旧配置）
-            self.faiss_index = FAISSIndex(self.embedding_dim)
-            print(f"[Engine] 使用基础模型特征：{self.model_id} (dim={self.embedding_dim})")
-            return
-
-        # 默认：efficientnet（保持旧逻辑）
+        """加载训练好的模型（单流EfficientNet模型）"""
         model_path = INFERENCE_CONFIG["model_path"]
-        self.model_id = f"efficientnet_embedder:{MODEL_CONFIG.get('embedding_dim')}"
-
-        self.embedder = EfficientNetEmbedder(
-            embedding_dim=self.embedding_dim,
-            pretrained=False  # 推理时不需要重新加载预训练权重
-        ).to(DEVICE)
-
-        if Path(model_path).exists():
-            checkpoint = torch.load(model_path, map_location=DEVICE)
-            # 只加载embedder部分的权重
-            state_dict = checkpoint.get("model_state_dict", checkpoint)
-            # 过滤出embedder的权重
-            embedder_dict = {
-                k.replace("embedder.", ""): v
-                for k, v in state_dict.items()
-                if k.startswith("embedder.")
-            }
-            if embedder_dict:
-                self.embedder.load_state_dict(embedder_dict)
-                print(f"[Engine] 加载模型权重: {model_path}")
-            else:
-                print("[Engine] 未找到embedder权重，使用预训练权重")
-                self.embedder = EfficientNetEmbedder(
-                    embedding_dim=self.embedding_dim,
-                    pretrained=True
-                ).to(DEVICE)
-        else:
+        
+        # 检查模型文件是否存在
+        if not Path(model_path).exists():
             print("[Engine] ⚠️  未找到训练模型，使用ImageNet预训练权重（仅用于演示）")
             self.embedder = EfficientNetEmbedder(
-                embedding_dim=self.embedding_dim,
+                embedding_dim=MODEL_CONFIG["embedding_dim"],
                 pretrained=True
             ).to(DEVICE)
-
-        self.embedder.eval()
+            self.embedding_dim = self.embedder.embedding_dim
+            self.faiss_index = FAISSIndex(self.embedding_dim)
+            self.embedder.eval()
+            return
+        
+        # 加载checkpoint
+        checkpoint = torch.load(model_path, map_location=DEVICE)
+        
+        # 获取类别数
+        class_mapping_path = Path(model_path).parent / "class_mapping.json"
+        if class_mapping_path.exists():
+            with open(str(class_mapping_path), "r", encoding="utf-8") as f:
+                class_mapping = json.load(f)
+            num_classes = len(class_mapping["class_to_idx"])
+        else:
+            num_classes = 100
+        
+        # 使用单流EfficientNet模型
+        self.model = ReagentRecognitionModel(
+            num_classes=num_classes,
+            embedding_dim=MODEL_CONFIG["embedding_dim"],
+            pretrained=False,
+            arcface_margin=MODEL_CONFIG["arcface_margin"],
+            arcface_scale=MODEL_CONFIG["arcface_scale"],
+        ).to(DEVICE)
+        print(f"[Engine] 使用单流EfficientNet-B2模型")
+        
+        self.model.eval()
+        
+        # 加载权重
+        state_dict = checkpoint.get("model_state_dict", checkpoint)
+        
+        # 移除module.前缀（如果使用DataParallel训练）
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            if k.startswith('module.'):
+                new_state_dict[k[7:]] = v
+            else:
+                new_state_dict[k] = v
+        
+        missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
+        
+        if missing_keys:
+            print(f"[Engine] 警告: 缺少的键: {missing_keys[:5]}...")
+        if unexpected_keys:
+            print(f"[Engine] 警告: 意外的键: {unexpected_keys[:5]}...")
+        
+        print(f"[Engine] 加载模型权重: {model_path}")
+        
+        # 设置embedder和embedding_dim
+        self.embedder = self.model.embedder
+        self.embedding_dim = self.model.embedding_dim
+        
+        # 初始化FAISS
+        self.faiss_index = FAISSIndex(self.embedding_dim)
+        
+        # 如果embedder是nn.Module，设置为eval模式
+        if hasattr(self.embedder, 'eval'):
+            self.embedder.eval()
 
     def _load_index(self):
         """加载FAISS索引"""
@@ -260,13 +334,6 @@ class ReagentRecognitionEngine:
         else:
             raise ValueError(f"不支持的图像类型: {type(image_input)}")
 
-        if self.preprocess_mode == "foundation":
-            # foundation preprocess expects RGB float tensor in [0,1]
-            pil = Image.fromarray(img)
-            t = torch.from_numpy(np.array(pil)).permute(2, 0, 1).float() / 255.0  # [3,H,W]
-            t = t.unsqueeze(0).to(DEVICE)
-            return t
-
         # albumentations变换（efficientnet）
         augmented = self.transform(image=img)
         tensor = augmented["image"].unsqueeze(0).to(DEVICE)  # [1, 3, H, W]
@@ -276,12 +343,15 @@ class ReagentRecognitionEngine:
     def extract_embedding(self, image_input) -> np.ndarray:
         """提取图像嵌入向量"""
         tensor = self._preprocess_image(image_input)
-        if self.preprocess_mode == "foundation":
-            pixel_values = self.foundation_preprocess(tensor)  # -> pixel_values
-            embedding = self.embedder(pixel_values)
-        else:
-            embedding = self.embedder(tensor)  # [1, D]
-        return embedding.cpu().numpy()[0]  # [512]
+
+        # 使用embedder提取特征
+        embedding = self.embedder(tensor)
+
+        embedding = embedding.cpu().numpy()[0]
+
+        embedding = embedding / np.linalg.norm(embedding)
+
+        return embedding
 
     def register_reagent(
             self,
@@ -320,16 +390,21 @@ class ReagentRecognitionEngine:
             **(extra_info or {}),
         }
 
-        # 添加到FAISS索引
+        # 添加到FAISS索引（线程安全）
         vid = self.faiss_index.add(embedding, metadata)
 
-        # 持久化
-        self._save_index()
+        # 持久化（批量保存策略）
+        saved = self.faiss_index.save(
+            INFERENCE_CONFIG["faiss_index_path"],
+            INFERENCE_CONFIG["metadata_path"],
+            force=False
+        )
 
         return {
             "success": True,
             "reagent_id": reagent_id,
             "vector_id": vid,
+            "saved": saved,
             "message": f"试剂 {reagent_id} 注册成功",
         }
 
@@ -537,11 +612,17 @@ class ReagentRecognitionEngine:
             "message": f"检测到 {len(recognized_objects) + len(unrecognized_objects)} 个物体，识别成功 {len(recognized_objects)} 个",
         }
 
-    def _save_index(self):
-        """保存索引"""
+    def _save_index(self, force: bool = False):
+        """
+        保存索引
+        
+        Args:
+            force: 是否强制保存
+        """
         self.faiss_index.save(
             INFERENCE_CONFIG["faiss_index_path"],
             INFERENCE_CONFIG["metadata_path"],
+            force=force
         )
 
     def get_all_reagents(self) -> List[Dict]:
@@ -559,7 +640,7 @@ class ReagentRecognitionEngine:
             "unique_reagent_names": len(unique_names),
             "faiss_vectors": self.faiss_index.total,
             "device": DEVICE,
-            "model": self.model_id or MODEL_CONFIG.get("backbone", "N/A"),
+            "model": MODEL_CONFIG.get("backbone", "N/A"),
         }
 
     async def rebuild_index_from_images(self, data_dir: str, db=None):

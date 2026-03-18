@@ -20,16 +20,16 @@ from typing import Optional
 
 class EfficientNetEmbedder(nn.Module):
     """
-    EfficientNet-B0 特征提取器
+    EfficientNet-B2 特征提取器
     输出512维归一化嵌入向量
     """
 
     def __init__(self, embedding_dim: int = 512, pretrained: bool = True):
         super().__init__()
 
-        # 加载EfficientNet-B0主干（ImageNet预训练）
+        # 加载EfficientNet-B2主干（ImageNet预训练）
         self.backbone = timm.create_model(
-            "efficientnet_b0",
+            "efficientnet_b2",
             pretrained=pretrained,
             num_classes=0,  # 去掉分类头，只要特征
             global_pool="avg",  # 全局平均池化
@@ -193,6 +193,7 @@ class ReagentRecognitionModel(nn.Module):
             arcface_scale: float = 64.0,
     ):
         super().__init__()
+        self.embedding_dim = embedding_dim
         self.embedder = EfficientNetEmbedder(
             embedding_dim=embedding_dim,
             pretrained=pretrained

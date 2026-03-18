@@ -165,46 +165,110 @@ export default function MultipleRecognize() {
 
       ctx.drawImage(img, 0, 0)
 
-      result.recognized_objects.forEach((obj, idx) => {
+      const labelHeight = 24
+      const labelPadding = 4
+      const allObjects = [
+        ...result.recognized_objects.map(obj => ({ ...obj, type: 'recognized' })),
+        ...result.unrecognized_objects.map(obj => ({ ...obj, type: 'unrecognized' }))
+      ]
+
+      const labelPositions = []
+
+      allObjects.forEach((obj) => {
         const [x1, y1, x2, y2] = obj.bbox
-        ctx.strokeStyle = '#52c41a'
+        const color = obj.type === 'recognized' ? '#52c41a' : '#ff4d4f'
+        const labelWidth = 200
+
+        ctx.strokeStyle = color
         ctx.lineWidth = 3
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
 
-        const label = `${obj.reagent_name || obj.reagent_id} (${obj.confidence_pct})`
-        ctx.fillStyle = '#52c41a'
-        ctx.fillRect(x1, y1 - 24, 200, 24)
-        ctx.fillStyle = '#fff'
-        ctx.font = '14px Arial'
-        ctx.fillText(label, x1 + 4, y1 - 6)
-      })
-
-      result.unrecognized_objects.forEach((obj) => {
-        const [x1, y1, x2, y2] = obj.bbox
-        ctx.strokeStyle = '#ff4d4f'
-        ctx.lineWidth = 3
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
-
-        let label = '未识别'
-        if (obj.best_candidate_name) {
-          label = obj.best_candidate_name
-          if (obj.best_candidate && obj.best_candidate !== obj.best_candidate_name) {
-            label += ` (${obj.best_candidate})`
-          }
+        let labelText = '未识别'
+        if (obj.type === 'recognized') {
+          labelText = `${obj.reagent_name} ${obj.confidence_pct}`
+        } else if (obj.best_candidate_name) {
+          labelText = `${obj.best_candidate_name} ${obj.confidence_pct}`
         } else if (obj.best_candidate) {
-          label = obj.best_candidate
+          labelText = `${obj.best_candidate} ${obj.confidence_pct}`
         }
-        ctx.fillStyle = '#ff4d4f'
-        ctx.fillRect(x1, y1 - 24, 200, 24)
+
+        let labelY = y1 - labelHeight
+        let labelBelow = false
+
+        if (labelY < 0) {
+          labelY = y2
+          labelBelow = true
+        }
+
+        const newLabelRect = {
+          x: x1,
+          y: labelY,
+          width: labelWidth,
+          height: labelHeight
+        }
+
+        let hasOverlap = false
+        for (const existingRect of labelPositions) {
+          if (rectsOverlap(newLabelRect, existingRect)) {
+            hasOverlap = true
+            break
+          }
+        }
+
+        if (hasOverlap) {
+          labelY = y2
+          labelBelow = true
+
+          const belowLabelRect = {
+            x: x1,
+            y: labelY,
+            width: labelWidth,
+            height: labelHeight
+          }
+
+          let stillOverlapping = false
+          for (const existingRect of labelPositions) {
+            if (rectsOverlap(belowLabelRect, existingRect)) {
+              stillOverlapping = true
+              break
+            }
+          }
+
+          if (stillOverlapping) {
+            const boxHeight = y2 - y1
+            const centerY = y1 + boxHeight / 2
+            labelY = centerY - labelHeight / 2
+          }
+        }
+
+        ctx.fillStyle = color
+        ctx.fillRect(x1, labelY, labelWidth, labelHeight)
         ctx.fillStyle = '#fff'
         ctx.font = '14px Arial'
-        ctx.fillText(label, x1 + 4, y1 - 6)
+        ctx.fillText(labelText, x1 + labelPadding, labelY + 18)
+
+        labelPositions.push({
+          x: x1,
+          y: labelY,
+          width: labelWidth,
+          height: labelHeight
+        })
       })
     }
     img.onerror = () => {
       console.error('Failed to load image for drawing bounding boxes')
     }
     img.src = capturedImage
+  }
+
+  const rectsOverlap = (rect1, rect2) => {
+    const padding = 4
+    return !(
+      rect1.x + rect1.width + padding < rect2.x ||
+      rect2.x + rect2.width + padding < rect1.x ||
+      rect1.y + rect1.height + padding < rect2.y ||
+      rect2.y + rect2.height + padding < rect1.y
+    )
   }
 
   useEffect(() => {
@@ -218,6 +282,10 @@ export default function MultipleRecognize() {
     if (score >= 0.9) return '#52c41a'
     if (score >= 0.75) return '#1890ff'
     return '#ff4d4f'
+  }
+
+  const clampConfidence = (confidence) => {
+    return Math.min(Math.max(confidence, 0), 1)
   }
 
   const handleOpenCorrection = (obj, type) => {
@@ -401,13 +469,13 @@ export default function MultipleRecognize() {
                   showUploadList={false}
                   beforeUpload={handleUpload}
                 >
-                  {/*<Button*/}
-                  {/*  size="large"*/}
-                  {/*  icon={<UploadOutlined />}*/}
-                  {/*  disabled={loading}*/}
-                  {/*>*/}
-                  {/*  上传图片*/}
-                  {/*</Button>*/}
+                  <Button
+                    size="large"
+                    icon={<UploadOutlined />}
+                    disabled={loading}
+                  >
+                    上传图片
+                  </Button>
                 </Upload>
               </>
             )}
@@ -478,50 +546,44 @@ export default function MultipleRecognize() {
               />
               {result.recognized_objects?.length > 0 && (
                 <>
-                  <Divider orientation="left">已识别</Divider>
+                  <Divider orientation="left" style={{ margin: '12px 0 8px 0' }}>已识别</Divider>
                   {result.recognized_objects.map((obj, idx) => (
                     <Card
                       key={idx}
                       size="small"
-                      style={{ marginBottom: 12, borderLeft: '4px solid #52c41a' }}
-                      bodyStyle={{ padding: '12px' }}
+                      style={{ marginBottom: 8, borderLeft: '3px solid #52c41a' }}
+                      bodyStyle={{ padding: '8px 12px' }}
                     >
-                      <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <strong style={{ fontSize: 15 }}>{obj.reagent_name || obj.reagent_id}</strong>
-                          <Tag color="green">{obj.confidence_pct}</Tag>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <strong style={{ fontSize: 13 }}>{obj.reagent_name || obj.reagent_id}</strong>
+                        <Tag color="green" style={{ fontSize: 11, margin: 0 }}>{obj.confidence_pct}</Tag>
+                      </div>
+                      {obj.reagent_id && obj.reagent_id !== obj.reagent_name && (
+                        <div style={{ color: '#999', fontSize: 11, marginBottom: 4 }}>
+                          ID: {obj.reagent_id}
                         </div>
-                        {obj.reagent_id && obj.reagent_id !== obj.reagent_name && (
-                          <div style={{ color: '#666', fontSize: 13 }}>
-                            ID: {obj.reagent_id}
-                          </div>
-                        )}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontSize: 12 }}>置信度</span>
-                            <span style={{ fontSize: 12, color: confidenceColor(obj.confidence) }}>
-                              {(obj.confidence * 100).toFixed(1)}%
-                            </span>
-                          </div>
-                          <Progress
-                            percent={Math.round(obj.confidence * 100)}
-                            strokeColor={confidenceColor(obj.confidence)}
-                            showInfo={false}
-                            size="small"
-                          />
-                        </div>
-                        <div style={{ fontSize: 11, color: '#999' }}>
-                          位置: [{obj.bbox.join(', ')}]
-                        </div>
-                        <Button
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <Progress
+                          percent={Math.round(clampConfidence(obj.confidence) * 100)}
+                          strokeColor={confidenceColor(obj.confidence)}
+                          showInfo={false}
                           size="small"
-                          icon={<EditOutlined />}
-                          onClick={() => handleOpenCorrection(obj, 'recognized')}
-                          style={{ marginTop: 4 }}
-                        >
-                          识别错误？纠错
-                        </Button>
-                      </Space>
+                          style={{ flex: 1 }}
+                        />
+                        <span style={{ fontSize: 11, color: confidenceColor(obj.confidence), minWidth: 40, textAlign: 'right' }}>
+                          {clampConfidence(obj.confidence).toFixed(2)}
+                        </span>
+                      </div>
+                      <Button
+                        size="small"
+                        type="link"
+                        icon={<EditOutlined />}
+                        onClick={() => handleOpenCorrection(obj, 'recognized')}
+                        style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                      >
+                        识别错误？纠错
+                      </Button>
                     </Card>
                   ))}
                 </>
@@ -529,52 +591,45 @@ export default function MultipleRecognize() {
 
               {result.unrecognized_objects?.length > 0 && (
                 <>
-                  <Divider orientation="left">未识别</Divider>
+                  <Divider orientation="left" style={{ margin: '12px 0 8px 0' }}>未识别</Divider>
                   {result.unrecognized_objects.map((obj, idx) => (
                     <Card
                       key={idx}
                       size="small"
-                      style={{ marginBottom: 12, borderLeft: '4px solid #ff4d4f' }}
-                      bodyStyle={{ padding: '12px' }}
+                      style={{ marginBottom: 8, borderLeft: '3px solid #ff4d4f' }}
+                      bodyStyle={{ padding: '8px 12px' }}
                     >
-                      <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <strong style={{ fontSize: 15, color: '#ff4d4f' }}>未知物体</strong>
-                          <Tag color="red">{obj.confidence_pct}</Tag>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <strong style={{ fontSize: 13, color: '#ff4d4f' }}>未知物体</strong>
+                        <Tag color="red" style={{ fontSize: 11, margin: 0 }}>{obj.confidence_pct}</Tag>
+                      </div>
+                      {obj.best_candidate && (
+                        <div style={{ color: '#999', fontSize: 11, marginBottom: 4 }}>
+                          最相似: {obj.best_candidate_name || obj.best_candidate} {obj.best_candidate_name && obj.best_candidate_name !== obj.best_candidate && `(${obj.best_candidate})`}
                         </div>
-                        {obj.best_candidate && (
-                          <div style={{ color: '#666', fontSize: 13 }}>
-                            最相似: {obj.best_candidate_name || obj.best_candidate} {obj.best_candidate_name && obj.best_candidate_name !== obj.best_candidate && `(${obj.best_candidate})`}
-                          </div>
-                        )}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontSize: 12 }}>置信度</span>
-                            <span style={{ fontSize: 12, color: confidenceColor(obj.confidence) }}>
-                              {(obj.confidence * 100).toFixed(1)}%
-                            </span>
-                          </div>
-                          <Progress
-                            percent={Math.round(obj.confidence * 100)}
-                            strokeColor={confidenceColor(obj.confidence)}
-                            showInfo={false}
-                            size="small"
-                          />
-                        </div>
-                        <div style={{ fontSize: 11, color: '#999' }}>
-                          位置: [{obj.bbox.join(', ')}]
-                        </div>
-                        <Button
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <Progress
+                          percent={Math.round(clampConfidence(obj.confidence) * 100)}
+                          strokeColor={confidenceColor(obj.confidence)}
+                          showInfo={false}
                           size="small"
-                          type="primary"
-                          danger
-                          icon={<EditOutlined />}
-                          onClick={() => handleOpenCorrection(obj, 'unrecognized')}
-                          style={{ marginTop: 4 }}
-                        >
-                          点击纠错
-                        </Button>
-                      </Space>
+                          style={{ flex: 1 }}
+                        />
+                        <span style={{ fontSize: 11, color: confidenceColor(obj.confidence), minWidth: 40, textAlign: 'right' }}>
+                          {clampConfidence(obj.confidence).toFixed(2)}
+                        </span>
+                      </div>
+                      <Button
+                        size="small"
+                        type="link"
+                        danger
+                        icon={<EditOutlined />}
+                        onClick={() => handleOpenCorrection(obj, 'unrecognized')}
+                        style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                      >
+                        点击纠错
+                      </Button>
                     </Card>
                   ))}
                 </>
@@ -686,8 +741,13 @@ export default function MultipleRecognize() {
           setCropPixels(null)
           setIsNewReagentMode(false)
         }}
+        afterClose={() => {
+          setCorrectionObject(null)
+          setCropPixels(null)
+        }}
         footer={null}
         width={900}
+        destroyOnClose={true}
       >
         <Form
           form={form}
@@ -696,9 +756,10 @@ export default function MultipleRecognize() {
         >
           <Row gutter={24}>
             <Col span={12}>
-              {capturedImage && (
+              {capturedImage && correctionObject && (
                 <div>
                   <ImageCropper
+                    key={`cropper-${correctionObject?.type}-${correctionObject?.obj?.reagent_id || Date.now()}`}
                     src={capturedImage}
                     height={400}
                     initialCrop={correctionObject?.obj?.crop_bbox
