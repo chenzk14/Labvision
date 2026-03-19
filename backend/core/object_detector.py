@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import warnings
 
+from backend.config import DETECTION_CONFIG
+
 try:
     from ultralytics import YOLO
 
@@ -36,25 +38,29 @@ class ObjectDetector:
 
     def __init__(
             self,
-            model_name: str = "yolov8n.pt",
-            device: str = "auto",
-            confidence_threshold: float = 0.5,
-            iou_threshold: float = 0.45,
+            model_name: Optional[str] = None,
+            device: Optional[str] = None,
+            confidence_threshold: Optional[float] = None,
+            iou_threshold: Optional[float] = None,
     ):
         """
         初始化检测器
 
         Args:
-            model_name: YOLO模型名称 (yolov8n/yolov8s/yolov8m/yolov8l/yolov8x)
+            model_name: YOLO模型名称 (yolo11n/yolo11s/yolo11m/yolo11l/yolo11x)
                        n=nan(最小), s=small, m=medium, l=large, x=xlarge
+                       如果为None，则使用配置文件中的默认值
             device: 运行设备 ('auto', 'cpu', 'cuda', 'cuda:0', etc.)
+                   如果为None，则使用配置文件中的默认值
             confidence_threshold: 检测置信度阈值
+                                 如果为None，则使用配置文件中的默认值
             iou_threshold: NMS的IOU阈值
+                          如果为None，则使用配置文件中的默认值
         """
-        self.model_name = model_name
-        self.device = device
-        self.confidence_threshold = confidence_threshold
-        self.iou_threshold = iou_threshold
+        self.model_name = model_name or DETECTION_CONFIG["model_name"]
+        self.device = device or DETECTION_CONFIG["device"]
+        self.confidence_threshold = confidence_threshold or DETECTION_CONFIG["confidence_threshold"]
+        self.iou_threshold = iou_threshold or DETECTION_CONFIG["iou_threshold"]
 
         self.model = None
 
@@ -70,6 +76,12 @@ class ObjectDetector:
             if self.device != "auto":
                 self.model.to(self.device)
             print(f"[ObjectDetector] 加载模型: {self.model_name}")
+        except FileNotFoundError:
+            print(f"[ObjectDetector] 模型文件不存在: {self.model_name}")
+            print(f"[ObjectDetector] 请手动下载模型文件:")
+            print(f"[ObjectDetector] 1. 访问: https://release-assets.githubusercontent.com/github-production-release-asset/521807533/79c307d8-9e4c-4b8e-a340-3287025f761e?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-03-19T02%3A46%3A00Z&rscd=attachment%3B+filename%3Dyolo11m.pt&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2026-03-19T01%3A45%3A43Z&ske=2026-03-19T02%3A46%3A00Z&sks=b&skv=2018-11-09&sig=KyxdRY6YYDh3GaEnXQE3Z2VArBQpdqZHi4doxHOc9iQ%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc3Mzg4NjkyMSwibmJmIjoxNzczODg1MTIxLCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.zwA-g46eT1xMjTSboYN7toxCnvK3D_JGBIkIGKcFcEk&response-content-disposition=attachment%3B%20filename%3Dyolo11m.pt&response-content-type=application%2Foctet-stream")
+            print(f"[ObjectDetector] 2. 下载后放到项目根目录: {Path.cwd()}\\{self.model_name}")
+            self.model = None
         except Exception as e:
             print(f"[ObjectDetector] 加载模型失败: {e}")
             self.model = None
@@ -265,11 +277,37 @@ _detector_instance: Optional[ObjectDetector] = None
 
 
 def get_detector() -> ObjectDetector:
-    """获取全局检测器实例"""
+    """获取全局检测器实例（使用配置文件中的参数）"""
     global _detector_instance
     if _detector_instance is None:
         _detector_instance = ObjectDetector()
     return _detector_instance
+
+
+def get_detector_with_config(
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
+    confidence_threshold: Optional[float] = None,
+    iou_threshold: Optional[float] = None,
+) -> ObjectDetector:
+    """
+    获取检测器实例，支持自定义参数覆盖配置文件
+
+    Args:
+        model_name: YOLO模型名称（覆盖配置文件）
+        device: 运行设备（覆盖配置文件）
+        confidence_threshold: 检测置信度阈值（覆盖配置文件）
+        iou_threshold: NMS的IOU阈值（覆盖配置文件）
+
+    Returns:
+        ObjectDetector实例
+    """
+    return ObjectDetector(
+        model_name=model_name,
+        device=device,
+        confidence_threshold=confidence_threshold,
+        iou_threshold=iou_threshold,
+    )
 
 
 if __name__ == "__main__":

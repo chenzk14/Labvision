@@ -741,13 +741,8 @@ export default function MultipleRecognize() {
           setCropPixels(null)
           setIsNewReagentMode(false)
         }}
-        afterClose={() => {
-          setCorrectionObject(null)
-          setCropPixels(null)
-        }}
         footer={null}
         width={900}
-        destroyOnClose={true}
       >
         <Form
           form={form}
@@ -759,7 +754,7 @@ export default function MultipleRecognize() {
               {capturedImage && correctionObject && (
                 <div>
                   <ImageCropper
-                    key={`cropper-${correctionObject?.type}-${correctionObject?.obj?.reagent_id || Date.now()}`}
+                    key={`cropper-${correctionObject?.type}-${correctionObject?.obj?.reagent_id || 'unknown'}`}
                     src={capturedImage}
                     height={400}
                     initialCrop={correctionObject?.obj?.crop_bbox

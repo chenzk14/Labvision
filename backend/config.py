@@ -175,6 +175,38 @@ INFERENCE_CONFIG = {
     "model_path": str(MODELS_DIR / "best_model.pth"),
 }
 
+# ===================== 目标检测配置 (YOLOv11) =====================
+DETECTION_CONFIG = {
+
+    # YOLO模型名称 (yolo11n/yolo11s/yolo11m/yolo11l/yolo11x)
+    # n=nan(最小), s=small, m=medium, l=large, x=xlarge
+    "model_name": "yolo11m.pt",
+
+    # 运行设备 ('auto', 'cpu', 'cuda', 'cuda:0', etc.)
+    "device": "auto",
+
+    # 检测置信度阈值
+    "confidence_threshold": 0.5,
+
+    # NMS的IOU阈值
+    "iou_threshold": 0.45,
+
+    # 最大检测数量
+    "max_det": 100,
+
+    # 裁剪时的边界框扩展像素数
+    "crop_padding": 10,
+
+    # 是否绘制检测结果
+    "draw_detections": True,
+
+    # 绘制边界框颜色 (B, G, R)
+    "bbox_color": (0, 255, 0),
+
+    # 边界框线条粗细
+    "bbox_thickness": 2,
+}
+
 # ===================== 设备 =====================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 

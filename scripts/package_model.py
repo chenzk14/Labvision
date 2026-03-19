@@ -20,7 +20,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from backend.config import MODEL_CONFIG, INFERENCE_CONFIG, DEVICE
+from backend.config import MODEL_CONFIG, INFERENCE_CONFIG, DEVICE, DETECTION_CONFIG
 
 
 @dataclass
@@ -129,19 +129,19 @@ class DetectionResult:
 
 
 class ObjectDetector:
-    """基于YOLOv8的目标检测器 - 2026现代化版本"""
+    """基于YOLOv11的目标检测器 - 2026现代化版本"""
 
     def __init__(
         self,
-        model_name: str = "yolov8n.pt",
-        device: str = "auto",
-        confidence_threshold: float = 0.5,
-        iou_threshold: float = 0.45,
+        model_name: Optional[str] = None,
+        device: Optional[str] = None,
+        confidence_threshold: Optional[float] = None,
+        iou_threshold: Optional[float] = None,
     ) -> None:
-        self.model_name = model_name
-        self.device = device
-        self.confidence_threshold = confidence_threshold
-        self.iou_threshold = iou_threshold
+        self.model_name = model_name or DETECTION_CONFIG["model_name"]
+        self.device = device or DETECTION_CONFIG["device"]
+        self.confidence_threshold = confidence_threshold or DETECTION_CONFIG["confidence_threshold"]
+        self.iou_threshold = iou_threshold or DETECTION_CONFIG["iou_threshold"]
         self.model = None
         self._load_model()
 
@@ -317,11 +317,37 @@ _detector_instance: Optional[ObjectDetector] = None
 
 
 def get_detector() -> ObjectDetector:
-    """获取全局检测器实例"""
+    """获取全局检测器实例（使用配置文件中的参数）"""
     global _detector_instance
     if _detector_instance is None:
         _detector_instance = ObjectDetector()
     return _detector_instance
+
+
+def get_detector_with_config(
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
+    confidence_threshold: Optional[float] = None,
+    iou_threshold: Optional[float] = None,
+) -> ObjectDetector:
+    """
+    获取检测器实例，支持自定义参数覆盖配置文件
+
+    Args:
+        model_name: YOLO模型名称（覆盖配置文件）
+        device: 运行设备（覆盖配置文件）
+        confidence_threshold: 检测置信度阈值（覆盖配置文件）
+        iou_threshold: NMS的IOU阈值（覆盖配置文件）
+
+    Returns:
+        ObjectDetector实例
+    """
+    return ObjectDetector(
+        model_name=model_name,
+        device=device,
+        confidence_threshold=confidence_threshold,
+        iou_threshold=iou_threshold,
+    )
 
 
 class ReagentRecognitionEngine:
@@ -588,30 +614,30 @@ class ReagentRecognitionEngine:
 
 class ObjectDetector:
     """
-    基于YOLOv8的目标检测器
+    基于YOLOv11的目标检测器
     检测图片中的试剂瓶，返回边界框信息
     """
 
     def __init__(
             self,
-            model_name: str = "yolov8n.pt",
-            device: str = "auto",
-            confidence_threshold: float = 0.5,
-            iou_threshold: float = 0.45,
+            model_name: Optional[str] = None,
+            device: Optional[str] = None,
+            confidence_threshold: Optional[float] = None,
+            iou_threshold: Optional[float] = None,
     ):
         """
         初始化检测器
 
         Args:
-            model_name: YOLO模型名称
-            device: 运行设备
-            confidence_threshold: 检测置信度阈值
-            iou_threshold: NMS的IOU阈值
+            model_name: YOLO模型名称（如果为None，使用配置文件默认值）
+            device: 运行设备（如果为None，使用配置文件默认值）
+            confidence_threshold: 检测置信度阈值（如果为None，使用配置文件默认值）
+            iou_threshold: NMS的IOU阈值（如果为None，使用配置文件默认值）
         """
-        self.model_name = model_name
-        self.device = device
-        self.confidence_threshold = confidence_threshold
-        self.iou_threshold = iou_threshold
+        self.model_name = model_name or DETECTION_CONFIG["model_name"]
+        self.device = device or DETECTION_CONFIG["device"]
+        self.confidence_threshold = confidence_threshold or DETECTION_CONFIG["confidence_threshold"]
+        self.iou_threshold = iou_threshold or DETECTION_CONFIG["iou_threshold"]
         self.model = None
         self._load_model()
 
@@ -695,11 +721,37 @@ _detector_instance = None
 
 
 def get_detector() -> ObjectDetector:
-    """获取全局检测器实例"""
+    """获取全局检测器实例（使用配置文件中的参数）"""
     global _detector_instance
     if _detector_instance is None:
         _detector_instance = ObjectDetector()
     return _detector_instance
+
+
+def get_detector_with_config(
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
+    confidence_threshold: Optional[float] = None,
+    iou_threshold: Optional[float] = None,
+) -> ObjectDetector:
+    """
+    获取检测器实例，支持自定义参数覆盖配置文件
+
+    Args:
+        model_name: YOLO模型名称（覆盖配置文件）
+        device: 运行设备（覆盖配置文件）
+        confidence_threshold: 检测置信度阈值（覆盖配置文件）
+        iou_threshold: NMS的IOU阈值（覆盖配置文件）
+
+    Returns:
+        ObjectDetector实例
+    """
+    return ObjectDetector(
+        model_name=model_name,
+        device=device,
+        confidence_threshold=confidence_threshold,
+        iou_threshold=iou_threshold,
+    )
 
     def recognize_multiple(
         self,

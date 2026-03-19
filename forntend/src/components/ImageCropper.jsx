@@ -13,42 +13,46 @@ export default function ImageCropper({
 
   const [crop, setCrop] = useState()
   const [completedCrop, setCompletedCrop] = useState()
+  const [imageLoaded, setImageLoaded] = useState(false)
 
   // 图片加载
   const onImageLoad = (e) => {
     const img = e.currentTarget
     imgRef.current = img
+    setImageLoaded(true)
 
-    if (initialCrop) {
-      const scaleX = img.width / img.naturalWidth
-      const scaleY = img.height / img.naturalHeight
-      
-      const displayX = initialCrop.x1 * scaleX
-      const displayY = initialCrop.y1 * scaleY
-      const displayWidth = (initialCrop.x2 - initialCrop.x1) * scaleX
-      const displayHeight = (initialCrop.y2 - initialCrop.y1) * scaleY
-      
-      const clampedX = Math.max(0, Math.min(displayX, img.width - displayWidth))
-      const clampedY = Math.max(0, Math.min(displayY, img.height - displayHeight))
-      const clampedWidth = Math.min(displayWidth, img.width - clampedX)
-      const clampedHeight = Math.min(displayHeight, img.height - clampedY)
-      
-      setCrop({
-        unit: "px",
-        x: clampedX,
-        y: clampedY,
-        width: clampedWidth,
-        height: clampedHeight
-      })
-    } else {
-      setCrop({
-        unit: "%",
-        x: 10,
-        y: 10,
-        width: 80,
-        height: 80
-      })
-    }
+    setTimeout(() => {
+      if (initialCrop) {
+        const scaleX = img.width / img.naturalWidth
+        const scaleY = img.height / img.naturalHeight
+        
+        const displayX = initialCrop.x1 * scaleX
+        const displayY = initialCrop.y1 * scaleY
+        const displayWidth = (initialCrop.x2 - initialCrop.x1) * scaleX
+        const displayHeight = (initialCrop.y2 - initialCrop.y1) * scaleY
+        
+        const clampedX = Math.max(0, Math.min(displayX, img.width - displayWidth))
+        const clampedY = Math.max(0, Math.min(displayY, img.height - displayHeight))
+        const clampedWidth = Math.min(displayWidth, img.width - clampedX)
+        const clampedHeight = Math.min(displayHeight, img.height - clampedY)
+        
+        setCrop({
+          unit: "px",
+          x: clampedX,
+          y: clampedY,
+          width: clampedWidth,
+          height: clampedHeight
+        })
+      } else {
+        setCrop({
+          unit: "%",
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 80
+        })
+      }
+    }, 100)
   }
 
   // 输出原图坐标
@@ -118,6 +122,17 @@ export default function ImageCropper({
 
   return (
     <div style={{ width: "100%" }}>
+      {!imageLoaded && (
+        <div style={{ 
+          height: height, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          color: '#999'
+        }}>
+          加载中...
+        </div>
+      )}
       <ReactCrop
         crop={crop}
         keepSelection
@@ -125,6 +140,7 @@ export default function ImageCropper({
         minHeight={20}
         onChange={(c) => setCrop(c)}
         onComplete={(c) => setCompletedCrop(c)}
+        disabled={!imageLoaded}
       >
         <img
           src={src}
@@ -132,7 +148,8 @@ export default function ImageCropper({
           onLoad={onImageLoad}
           style={{
             maxHeight: height,
-            width: "auto"
+            width: "auto",
+            display: imageLoaded ? 'block' : 'none'
           }}
         />
       </ReactCrop>
