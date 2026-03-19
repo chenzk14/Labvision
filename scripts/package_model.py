@@ -1,3 +1,4 @@
+# C:\InsightFaceFAISS\FSFGIC\scripts\package_model.py
 """模型打包脚本 - 2026现代化版本
 将训练好的模型打包成可部署的包，支持多物体识别
 
@@ -11,16 +12,14 @@ import json
 import shutil
 import sys
 import argparse
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import torch
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from backend.config import MODEL_CONFIG, INFERENCE_CONFIG, DEVICE, DETECTION_CONFIG
+from backend.config import MODEL_CONFIG, INFERENCE_CONFIG, DEVICE, DETECTION_CONFIG, TRAIN_CONFIG
 
 
 @dataclass
@@ -52,12 +51,12 @@ class ModelPackager:
 
     def _create_directories(self) -> None:
         """创建目录结构"""
-        dirs = ["models", "embeddings", "config"]
+        dirs = ["models", "embeddings", "config", "backend"]
         for d in dirs:
             (self.output_path / d).mkdir(parents=True, exist_ok=True)
 
     def _copy_model_files(self) -> None:
-        """复制模型文件"""
+        """复制模型文件和backend模块"""
         files = [
             ("saved_models/best_model.pth", "models/best_model.pth"),
             ("saved_models/class_mapping.json", "config/class_mapping.json"),
@@ -72,17 +71,35 @@ class ModelPackager:
                 print(f"  ✓ {src} → {dst}")
             else:
                 print(f"  ⚠ {src} 不存在")
+        
+        self._copy_backend_module()
+    
+    def _copy_backend_module(self) -> None:
+        """复制backend模块到部署包"""
+        backend_src = self.base_dir / "backend"
+        backend_dst = self.output_path / "backend"
+        
+        if not backend_src.exists():
+            print(f"  ⚠ backend 目录不存在")
+            return
+        
+        try:
+            if backend_dst.exists():
+                shutil.rmtree(backend_dst)
+            shutil.copytree(backend_src, backend_dst, 
+                           ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.pyo'))
+            print(f"  ✓ backend 模块已复制")
+        except Exception as e:
+            print(f"  ⚠ 复制 backend 模块失败: {e}")
 
     def _generate_config(self) -> None:
         """生成配置文件"""
-        # 修正：确保配置文件中的特征提取器与训练时使用的EfficientNet一致
         model_config = MODEL_CONFIG.copy()
-        # 强制使用efficientnet，因为训练和索引构建都是用efficientnet
-        # model_config["feature_extractor"] = "efficientnet"
         
         config_data = {
             "model_config": model_config,
             "inference_config": INFERENCE_CONFIG,
+            "train_config": TRAIN_CONFIG,
             "device": DEVICE,
             "package_time": datetime.now().isoformat(),
         }
@@ -100,254 +117,27 @@ class ModelPackager:
 
 from __future__ import annotations
 
-import json
 import argparse
-from dataclasses import dataclass
+import json
+import sys
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Dict
 
 import cv2
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import faiss
-from PIL import Image
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-import timm
-import math
 
+sys.path.insert(0, str(Path(__file__).parent))
 
-@dataclass
-class DetectionResult:
-    """检测结果"""
-    bbox: List[int]
-    confidence: float
-    class_id: int
-    class_name: str
-
-
-class ObjectDetector:
-    """基于YOLOv11的目标检测器 - 2026现代化版本"""
-
-    def __init__(
-        self,
-        model_name: Optional[str] = None,
-        device: Optional[str] = None,
-        confidence_threshold: Optional[float] = None,
-        iou_threshold: Optional[float] = None,
-    ) -> None:
-        self.model_name = model_name or DETECTION_CONFIG["model_name"]
-        self.device = device or DETECTION_CONFIG["device"]
-        self.confidence_threshold = confidence_threshold or DETECTION_CONFIG["confidence_threshold"]
-        self.iou_threshold = iou_threshold or DETECTION_CONFIG["iou_threshold"]
-        self.model = None
-        self._load_model()
-
-    def _load_model(self) -> None:
-        """加载YOLO模型"""
-        try:
-            from ultralytics import YOLO
-            self.model = YOLO(self.model_name)
-            if self.device != "auto":
-                self.model.to(self.device)
-            print(f"[ObjectDetector] 加载模型: {self.model_name}")
-        except ImportError:
-            print(f"[ObjectDetector] ultralytics未安装，多物体识别功能不可用")
-            print(f"[ObjectDetector] 请运行: pip install ultralytics")
-        except Exception as e:
-            print(f"[ObjectDetector] 加载模型失败: {e}")
-
-    def detect(
-        self,
-        image: np.ndarray,
-        confidence_threshold: Optional[float] = None,
-        iou_threshold: Optional[float] = None,
-        max_det: int = 100,
-    ) -> List[DetectionResult]:
-        """检测图片中的物体"""
-        if self.model is None:
-            return []
-
-        conf_th = confidence_threshold or self.confidence_threshold
-        iou_th = iou_threshold or self.iou_threshold
-
-        try:
-            results = self.model(
-                image,
-                conf=conf_th,
-                iou=iou_th,
-                max_det=max_det,
-                verbose=False,
-            )
-        except Exception as e:
-            print(f"[ObjectDetector] 检测失败: {e}")
-            return []
-
-        detections = []
-        for result in results:
-            boxes = result.boxes
-            if boxes is None:
-                continue
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                confidence = float(box.conf[0].cpu().numpy())
-                class_id = int(box.cls[0].cpu().numpy())
-                class_name = result.names.get(class_id, "unknown")
-                detections.append(DetectionResult(
-                    bbox=[int(x1), int(y1), int(x2), int(y2)],
-                    confidence=confidence,
-                    class_id=class_id,
-                    class_name=class_name,
-                ))
-        return detections
-
-    def detect_and_crop(
-        self,
-        image: np.ndarray,
-        confidence_threshold: Optional[float] = None,
-        padding: int = 10,
-    ) -> List[Tuple[np.ndarray, DetectionResult]]:
-        """检测并裁剪物体"""
-        detections = self.detect(image, confidence_threshold)
-        results = []
-        h, w = image.shape[:2]
-
-        for det in detections:
-            x1, y1, x2, y2 = det.bbox
-            x1 = max(0, x1 - padding)
-            y1 = max(0, y1 - padding)
-            x2 = min(w, x2 + padding)
-            y2 = min(h, y2 + padding)
-            crop = image[y1:y2, x1:x2]
-            if crop.size > 0:
-                results.append((crop, det))
-        return results
-
-
-class EfficientNetV2Embedder(nn.Module):
-    """EfficientNetV2特征提取器"""
-    def __init__(self, embedding_dim: int = 256, backbone: str = "efficientnetv2_s", pretrained: bool = False):
-        super().__init__()
-        self.backbone = timm.create_model(
-            backbone,
-            pretrained=pretrained,
-            num_classes=0,
-            global_pool="avg",
-        )
-        backbone_out_dim = self.backbone.num_features
-        self.projector = nn.Sequential(
-            nn.Linear(backbone_out_dim, 1024),
-            nn.BatchNorm1d(1024),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(1024, embedding_dim),
-            nn.BatchNorm1d(embedding_dim),
-        )
-        self.embedding_dim = embedding_dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.backbone(x)
-        embeddings = self.projector(features)
-        embeddings = F.normalize(embeddings, p=2, dim=1)
-        return embeddings
-
-
-class ArcFaceLoss(nn.Module):
-    """ArcFace Loss - 2026简化版本"""
-    def __init__(self, embedding_dim: int = 256, num_classes: int = 100, margin: float = 0.35, scale: float = 30.0):
-        super().__init__()
-        self.weight = nn.Parameter(torch.FloatTensor(num_classes, embedding_dim))
-        nn.init.xavier_uniform_(self.weight)
-        self.margin = margin
-        self.scale = scale
-        self.cos_m = math.cos(margin)
-        self.sin_m = math.sin(margin)
-        self.th = math.cos(math.pi - margin)
-        self.mm = math.sin(math.pi - margin) * margin
-
-    def forward(self, embeddings: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        weight_norm = F.normalize(self.weight, p=2, dim=1)
-        cosine = F.linear(embeddings, weight_norm)
-        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
-        phi = cosine * self.cos_m - sine * self.sin_m
-        phi = torch.where(cosine > self.th, phi, cosine - self.mm)
-        one_hot = torch.zeros(cosine.size()).to(embeddings.device)
-        one_hot.scatter_(1, labels.view(-1, 1).long(), 1)
-        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
-        output *= self.scale
-        return F.cross_entropy(output, labels)
-
-
-class ReagentRecognitionModel(nn.Module):
-    """试剂识别模型 - 2026简化版本"""
-    def __init__(
-        self,
-        num_classes: int,
-        embedding_dim: int = 256,
-        backbone: str = "efficientnetv2_s",
-        pretrained: bool = False,
-        arcface_margin: float = 0.35,
-        arcface_scale: float = 30.0,
-    ):
-        super().__init__()
-        self.embedder = EfficientNetV2Embedder(
-            embedding_dim=embedding_dim,
-            backbone=backbone,
-            pretrained=pretrained
-        )
-        self.arcface = ArcFaceLoss(
-            embedding_dim=embedding_dim,
-            num_classes=num_classes,
-            margin=arcface_margin,
-            scale=arcface_scale,
-        )
-        self.embedding_dim = embedding_dim
-
-    def forward(self, x: torch.Tensor, labels: torch.Tensor = None):
-        embeddings = self.embedder(x)
-        if labels is not None:
-            loss = self.arcface(embeddings, labels)
-            return embeddings, loss
-        return embeddings, None
-
-
-_detector_instance: Optional[ObjectDetector] = None
-
-
-def get_detector() -> ObjectDetector:
-    """获取全局检测器实例（使用配置文件中的参数）"""
-    global _detector_instance
-    if _detector_instance is None:
-        _detector_instance = ObjectDetector()
-    return _detector_instance
-
-
-def get_detector_with_config(
-    model_name: Optional[str] = None,
-    device: Optional[str] = None,
-    confidence_threshold: Optional[float] = None,
-    iou_threshold: Optional[float] = None,
-) -> ObjectDetector:
-    """
-    获取检测器实例，支持自定义参数覆盖配置文件
-
-    Args:
-        model_name: YOLO模型名称（覆盖配置文件）
-        device: 运行设备（覆盖配置文件）
-        confidence_threshold: 检测置信度阈值（覆盖配置文件）
-        iou_threshold: NMS的IOU阈值（覆盖配置文件）
-
-    Returns:
-        ObjectDetector实例
-    """
-    return ObjectDetector(
-        model_name=model_name,
-        device=device,
-        confidence_threshold=confidence_threshold,
-        iou_threshold=iou_threshold,
-    )
+try:
+    from backend.core.recognition_engine import ReagentRecognitionEngine as BackendEngine
+    from backend.core.object_detector import get_detector
+    from backend.config import INFERENCE_CONFIG, MODEL_CONFIG, DEVICE
+except ImportError:
+    print("[ERROR] 无法导入 backend 模块，请确保已安装所有依赖")
+    print("[ERROR] 运行: pip install -r requirements.txt")
+    sys.exit(1)
 
 
 class ReagentRecognitionEngine:
@@ -355,14 +145,14 @@ class ReagentRecognitionEngine:
 
     def __init__(
         self,
-        model_path: Optional[Path] = None,
-        index_path: Optional[Path] = None,
-        metadata_path: Optional[Path] = None,
-        img_size: int = 224,
-        device: Optional[str] = None,
+        model_path: Path = None,
+        index_path: Path = None,
+        metadata_path: Path = None,
+        img_size: int = None,
+        device: str = None,
     ):
-        self.img_size = img_size
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.img_size = img_size or MODEL_CONFIG["img_size"]
+        self.device = device or DEVICE
         script_dir = Path(__file__).parent
 
         model_path = model_path or script_dir / "models" / "best_model.pth"
@@ -373,14 +163,14 @@ class ReagentRecognitionEngine:
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-            self.threshold = config.get("inference_config", {}).get("similarity_threshold", 0.68)
+            self.threshold = config.get("inference_config", {}).get("similarity_threshold", 0.7)
             embedding_dim = config.get("model_config", {}).get("embedding_dim", 256)
         else:
-            self.threshold = 0.68
-            embedding_dim = 256
+            self.threshold = INFERENCE_CONFIG.get("similarity_threshold", 0.7)
+            embedding_dim = MODEL_CONFIG.get("embedding_dim", 256)
 
         checkpoint = torch.load(str(model_path), map_location=self.device)
-        print(f"[Engine] 检测到模型类型: single_efficientnet")
+        print(f"[Engine] 加载模型: {model_path}")
 
         class_mapping_path = script_dir / "config" / "class_mapping.json"
         if class_mapping_path.exists():
@@ -390,15 +180,14 @@ class ReagentRecognitionEngine:
         else:
             num_classes = 100
 
+        from backend.models.metric_model import ReagentRecognitionModel
         self.model = ReagentRecognitionModel(
             num_classes=num_classes,
             embedding_dim=embedding_dim,
-            backbone=checkpoint.get("backbone", "efficientnet_b2"),
             pretrained=False,
             arcface_margin=checkpoint.get("arcface_margin", 0.35),
-            arcface_scale=checkpoint.get("arcface_scale", 30.0),
+            arcface_scale=checkpoint.get("arcface_scale", 60.0),
         ).to(self.device)
-        print(f"[Engine] 使用单流EfficientNet模型")
 
         state_dict = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
         new_state_dict = {k[7:] if k.startswith("module.") else k: v for k, v in state_dict.items()}
@@ -409,27 +198,27 @@ class ReagentRecognitionEngine:
         with open(metadata_path, "r", encoding="utf-8") as f:
             self.id_map = json.load(f)
 
-        self.transform = A.Compose([
-            A.Resize(img_size, img_size),
-            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ToTensorV2(),
-        ])
+        from backend.core.dataset import get_val_transforms
+        self.transform = get_val_transforms(self.img_size)
 
         print(f"[Engine] 模型加载完成")
         print(f"  设备: {self.device}")
         print(f"  向量数: {self.index.ntotal}")
         print(f"  阈值: {self.threshold}")
-    
+
     def _preprocess_image(self, image_input) -> torch.Tensor:
         """预处理图像"""
         if isinstance(image_input, str):
             image_array = np.fromfile(image_input, dtype=np.uint8)
             img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
             if img is None:
+                from PIL import Image
                 img = np.array(Image.open(str(image_input)).convert('RGB'))
+            else:
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         elif isinstance(image_input, np.ndarray):
             img = cv2.cvtColor(image_input, cv2.COLOR_BGR2RGB) if image_input.shape[2] == 3 else image_input
-        elif isinstance(image_input, Image.Image):
+        elif hasattr(image_input, 'convert'):
             img = np.array(image_input.convert("RGB"))
         else:
             raise ValueError(f"不支持的图像类型: {type(image_input)}")
@@ -441,7 +230,7 @@ class ReagentRecognitionEngine:
     def extract_embedding(self, image_input) -> np.ndarray:
         """提取嵌入向量"""
         tensor = self._preprocess_image(image_input)
-        embeddings, _ = self.model(tensor, labels=None)
+        embeddings = self.model.embedder(tensor)
         return embeddings.cpu().numpy()[0]
 
     def recognize(self, image_input, topk: int = 5) -> Dict:
@@ -495,269 +284,6 @@ class ReagentRecognitionEngine:
             image_input,
             topk: int = 5,
             min_confidence: float = 0.5,
-    ):
-        """
-        识别多个试剂（多物体识别）
-
-        Args:
-            image_input: 摄像头图像（可能包含多个试剂）
-            topk: 返回前K个候选
-            min_confidence: 检测置信度阈值
-
-        Returns:
-            {
-                "total_objects": 3,
-                "recognized_objects": [...],
-                "unrecognized_objects": [...],
-                "message": "检测到 3 个物体，识别成功 2 个"
-            }
-        """
-        if self.index.ntotal == 0:
-            return {
-                "total_objects": 0,
-                "recognized_objects": [],
-                "unrecognized_objects": [],
-                "message": "系统中尚无注册试剂",
-            }
-
-        # 获取检测器
-        detector = get_detector()
-        if detector.model is None:
-            return {
-                "total_objects": 0,
-                "recognized_objects": [],
-                "unrecognized_objects": [],
-                "message": "目标检测模块未安装，请先安装 ultralytics: pip install ultralytics",
-            }
-
-        # 预处理图像
-        if isinstance(image_input, str):
-            image_array = np.fromfile(image_input, dtype=np.uint8)
-            img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-            if img is None:
-                pil_image = Image.open(str(image_input)).convert('RGB')
-                img = np.array(pil_image)
-        elif isinstance(image_input, np.ndarray):
-            img = image_input.copy()
-        else:
-            img = np.array(image_input)
-
-        h, w = img.shape[:2]
-
-        # 检测所有物体
-        detections = detector.detect(img, confidence_threshold=min_confidence)
-        # 按置信度排序，避免低质量框影响结果
-        detections = sorted(detections, key=lambda d: float(d.get("confidence", 0.0)), reverse=True)
-
-        recognized_objects = []
-        unrecognized_objects = []
-
-        # 对每个检测到的物体进行识别
-        for det in detections:
-            x1, y1, x2, y2 = det['bbox']
-            confidence = det['confidence']
-
-            # 过滤过小的框（通常是误检/噪声）
-            bw = max(0, x2 - x1)
-            bh = max(0, y2 - y1)
-            if bw < max(20, int(0.03 * w)) or bh < max(20, int(0.03 * h)):
-                continue
-
-            # 裁剪检测区域（带 padding，提升识别稳定性）
-            pad = max(10, int(0.08 * max(bw, bh)))
-            cx1 = max(0, x1 - pad)
-            cy1 = max(0, y1 - pad)
-            cx2 = min(w, x2 + pad)
-            cy2 = min(h, y2 + pad)
-            crop = img[cy1:cy2, cx1:cx2]
-
-            if crop.size == 0:
-                continue
-
-            # 识别裁剪的图像
-            result = self.recognize(crop, topk=topk)
-
-            obj_info = {
-                "bbox": [int(x1), int(y1), int(x2), int(y2)],
-                "crop_bbox": [int(cx1), int(cy1), int(cx2), int(cy2)],
-                "detection_confidence": float(confidence),
-                "detector_class": det.get("class_name", "unknown"),
-            }
-
-            if result["recognized"]:
-                obj_info.update({
-                    "reagent_id": result["reagent_id"],
-                    "reagent_name": result["reagent_name"],
-                    "confidence": result["confidence"],
-                    "confidence_pct": result["confidence_pct"],
-                })
-                recognized_objects.append(obj_info)
-            else:
-                if result["candidates"]:
-                    obj_info.update({
-                        "best_candidate": result["candidates"][0]["reagent_id"],
-                        "best_candidate_name": result["candidates"][0]["reagent_name"],
-                        "confidence": result["confidence"],
-                        "confidence_pct": result["confidence_pct"],
-                    })
-                unrecognized_objects.append(obj_info)
-
-        return {
-            "total_objects": len(recognized_objects) + len(unrecognized_objects),
-            "recognized_count": len(recognized_objects),
-            "unrecognized_count": len(unrecognized_objects),
-            "recognized_objects": recognized_objects,
-            "unrecognized_objects": unrecognized_objects,
-            "message": f"检测到 {len(recognized_objects) + len(unrecognized_objects)} 个物体，识别成功 {len(recognized_objects)} 个",
-        }
-
-
-class ObjectDetector:
-    """
-    基于YOLOv11的目标检测器
-    检测图片中的试剂瓶，返回边界框信息
-    """
-
-    def __init__(
-            self,
-            model_name: Optional[str] = None,
-            device: Optional[str] = None,
-            confidence_threshold: Optional[float] = None,
-            iou_threshold: Optional[float] = None,
-    ):
-        """
-        初始化检测器
-
-        Args:
-            model_name: YOLO模型名称（如果为None，使用配置文件默认值）
-            device: 运行设备（如果为None，使用配置文件默认值）
-            confidence_threshold: 检测置信度阈值（如果为None，使用配置文件默认值）
-            iou_threshold: NMS的IOU阈值（如果为None，使用配置文件默认值）
-        """
-        self.model_name = model_name or DETECTION_CONFIG["model_name"]
-        self.device = device or DETECTION_CONFIG["device"]
-        self.confidence_threshold = confidence_threshold or DETECTION_CONFIG["confidence_threshold"]
-        self.iou_threshold = iou_threshold or DETECTION_CONFIG["iou_threshold"]
-        self.model = None
-        self._load_model()
-
-    def _load_model(self):
-        """加载YOLO模型"""
-        try:
-            from ultralytics import YOLO
-            self.model = YOLO(self.model_name)
-            if self.device != "auto":
-                self.model.to(self.device)
-            print(f"[ObjectDetector] 加载模型: {self.model_name}")
-        except ImportError:
-            print("[ObjectDetector] ultralytics未安装，多物体识别功能不可用")
-            print("[ObjectDetector] 请运行: pip install ultralytics")
-        except Exception as e:
-            print(f"[ObjectDetector] 加载模型失败: {e}")
-            self.model = None
-
-    def detect(
-            self,
-            image: np.ndarray,
-            confidence_threshold: float = None,
-            iou_threshold: float = None,
-            max_det: int = 100,
-    ):
-        """
-        检测图片中的物体
-
-        Args:
-            image: 输入图片 (BGR格式)
-            confidence_threshold: 检测置信度阈值
-            iou_threshold: NMS的IOU阈值
-            max_det: 最大检测数量
-
-        Returns:
-            检测结果列表
-        """
-        if self.model is None:
-            return []
-
-        conf_th = confidence_threshold or self.confidence_threshold
-        iou_th = iou_threshold or self.iou_threshold
-
-        try:
-            results = self.model(
-                image,
-                conf=conf_th,
-                iou=iou_th,
-                max_det=max_det,
-                verbose=False,
-            )
-        except Exception as e:
-            print(f"[ObjectDetector] 检测失败: {e}")
-            return []
-
-        detections = []
-
-        for result in results:
-            boxes = result.boxes
-            if boxes is None:
-                continue
-
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                confidence = float(box.conf[0].cpu().numpy())
-                class_id = int(box.cls[0].cpu().numpy())
-                class_name = result.names.get(class_id, "unknown")
-
-                detections.append({
-                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
-                    "confidence": confidence,
-                    "class_id": class_id,
-                    "class_name": class_name,
-                })
-
-        return detections
-
-
-# 单例模式
-_detector_instance = None
-
-
-def get_detector() -> ObjectDetector:
-    """获取全局检测器实例（使用配置文件中的参数）"""
-    global _detector_instance
-    if _detector_instance is None:
-        _detector_instance = ObjectDetector()
-    return _detector_instance
-
-
-def get_detector_with_config(
-    model_name: Optional[str] = None,
-    device: Optional[str] = None,
-    confidence_threshold: Optional[float] = None,
-    iou_threshold: Optional[float] = None,
-) -> ObjectDetector:
-    """
-    获取检测器实例，支持自定义参数覆盖配置文件
-
-    Args:
-        model_name: YOLO模型名称（覆盖配置文件）
-        device: 运行设备（覆盖配置文件）
-        confidence_threshold: 检测置信度阈值（覆盖配置文件）
-        iou_threshold: NMS的IOU阈值（覆盖配置文件）
-
-    Returns:
-        ObjectDetector实例
-    """
-    return ObjectDetector(
-        model_name=model_name,
-        device=device,
-        confidence_threshold=confidence_threshold,
-        iou_threshold=iou_threshold,
-    )
-
-    def recognize_multiple(
-        self,
-        image_input,
-        topk: int = 5,
-        min_confidence: float = 0.5,
     ) -> Dict:
         """识别多个试剂（多物体识别）"""
         if self.index.ntotal == 0:
@@ -780,8 +306,6 @@ def get_detector_with_config(
         if isinstance(image_input, str):
             image_array = np.fromfile(image_input, dtype=np.uint8)
             img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-            if img is None:
-                img = np.array(Image.open(str(image_input)).convert('RGB'))
         elif isinstance(image_input, np.ndarray):
             img = image_input.copy()
         else:
@@ -789,21 +313,25 @@ def get_detector_with_config(
 
         h, w = img.shape[:2]
         detections = detector.detect(img, confidence_threshold=min_confidence)
-        detections = sorted(detections, key=lambda d: d.confidence, reverse=True)
+        detections = sorted(detections, key=lambda d: float(d.get("confidence", 0.0)), reverse=True)
 
         recognized_objects = []
         unrecognized_objects = []
 
         for det in detections:
-            x1, y1, x2, y2 = det.bbox
-            bw, bh = x2 - x1, y2 - y1
+            x1, y1, x2, y2 = det['bbox']
+            confidence = det['confidence']
 
+            bw = max(0, x2 - x1)
+            bh = max(0, y2 - y1)
             if bw < max(20, int(0.03 * w)) or bh < max(20, int(0.03 * h)):
                 continue
 
             pad = max(10, int(0.08 * max(bw, bh)))
-            cx1, cy1 = max(0, x1 - pad), max(0, y1 - pad)
-            cx2, cy2 = min(w, x2 + pad), min(h, y2 + pad)
+            cx1 = max(0, x1 - pad)
+            cy1 = max(0, y1 - pad)
+            cx2 = min(w, x2 + pad)
+            cy2 = min(h, y2 + pad)
             crop = img[cy1:cy2, cx1:cx2]
 
             if crop.size == 0:
@@ -813,8 +341,8 @@ def get_detector_with_config(
             obj_info = {
                 "bbox": [int(x1), int(y1), int(x2), int(y2)],
                 "crop_bbox": [int(cx1), int(cy1), int(cx2), int(cy2)],
-                "detection_confidence": float(det.confidence),
-                "detector_class": det.class_name,
+                "detection_confidence": float(confidence),
+                "detector_class": det.get("class_name", "unknown"),
             }
 
             if result["recognized"]:
@@ -925,21 +453,44 @@ if __name__ == "__main__":
     def _generate_requirements(self) -> None:
         """生成requirements.txt"""
         requirements = '''# 试剂识别模型依赖 - 2026现代化版本
+# 根据项目实际依赖生成
 
---extra-index-url https://download.pytorch.org/whl/cu117
+# PyTorch (根据CUDA版本选择)
+# CUDA 11.8
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch>=2.0.0
+torchvision>=0.15.0
 
-torch==2.0.1+cu117
-torchvision==0.15.2+cu117
-numpy==1.24.4
-opencv-python==4.8.1.78
-pillow==10.0.1
-albumentations==1.3.1
-timm==0.9.7
-faiss-cpu==1.7.4
-scikit-learn==1.3.0
-matplotlib==3.7.2
-seaborn==0.12.2
-ultralytics==8.0.200
+# 或者使用 CPU 版本
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# 核心依赖
+numpy>=1.24.0
+opencv-python>=4.8.0
+pillow>=10.0.0
+albumentations>=1.3.0
+timm>=0.9.0
+faiss-cpu>=1.7.4
+
+# 机器学习
+scikit-learn>=1.3.0
+
+# 目标检测
+ultralytics>=8.0.0
+
+# 数据库 (可选)
+# sqlalchemy>=2.0.0
+# aiosqlite>=0.19.0
+
+# 可视化 (可选)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Web API (可选)
+# fastapi>=0.100.0
+# uvicorn>=0.23.0
+# python-multipart>=0.0.6
 '''
         req_path = self.output_path / "requirements.txt"
         with open(req_path, "w", encoding="utf-8") as f:
@@ -959,13 +510,24 @@ ultralytics==8.0.200
 - `config/config.json` - 模型配置
 - `inference.py` - 推理脚本
 - `requirements.txt` - 依赖列表
+- `backend/` - 后端模块（包含核心识别逻辑）
+
+## 系统要求
+
+- Python 3.8+
+- CUDA 11.8+ (如果使用GPU)
+- 4GB+ 显存 (推荐)
 
 ## 快速开始
 
 ### 1. 安装依赖
 
 ```bash
+# 使用 CUDA 11.8
 python -m pip install -r requirements.txt
+
+# 如果使用 CPU，先注释掉 requirements.txt 中的 CUDA 相关行
+# python -m pip install -r requirements.txt
 ```
 
 ### 2. 单物体识别
@@ -984,40 +546,6 @@ python inference.py --image_path path/to/image.jpg --multiple
 
 ### 单物体识别
 
-```
-识别结果:
-==================================================
-[SUCCESS] 识别成功!
-   试剂ID: 乙醇001
-   试剂名称: 乙醇
-   置信度: 92.3%
-
-候选结果:
-  1. 乙醇001 (乙醇) - 92.3%
-  2. 乙醇002 (乙醇) - 85.6%
-  3. 乙醇003 (乙醇) - 78.2%
-```
-
-### 多物体识别
-
-```
-识别结果:
-==================================================
-检测到 3 个物体，识别成功 2 个
-
-已识别的试剂 (2):
-  1. 电脑001 (电脑)
-     置信度: 98.4%
-     位置: [100, 200, 300, 400]
-  2. 水杯001001 (水杯)
-     置信度: 95.2%
-     位置: [400, 200, 500, 400]
-
-未识别的物体 (1):
-  1. 最佳候选: 其他障碍物001 (其他障碍物)
-     置信度: 45.3%
-     位置: [600, 200, 700, 400]
-```
 
 ## 高级用法
 
@@ -1039,12 +567,59 @@ python inference.py --image_path path/to/image.jpg --multiple
 python inference.py --image_path path/to/image.jpg --multiple --min_confidence 0.3
 ```
 
+### 指定模型目录
+
+```bash
+python inference.py --image_path path/to/image.jpg --model_dir /path/to/model/dir
+```
+
+## 技术架构
+
+- **特征提取**: EfficientNetV2-S
+- **损失函数**: ArcFace Loss
+- **向量检索**: FAISS (IndexFlatIP)
+- **目标检测**: YOLOv11 (多物体识别)
+- **图像尺寸**: 288x288
+- **特征维度**: 256
+
 ## 注意事项
 
-1. 确保图片清晰，试剂特征明显
-2. 光照条件良好
-3. 多物体识别需要安装ultralytics: `pip install ultralytics`
-4. 如果识别率低，可以降低相似度阈值
+1. **图像质量**: 确保图片清晰，试剂特征明显
+2. **光照条件**: 光照条件良好，避免过暗或过亮
+3. **多物体识别**: 需要安装ultralytics: `pip install ultralytics`
+4. **识别率调整**: 如果识别率低，可以降低相似度阈值
+5. **GPU支持**: 推荐使用GPU加速推理
+
+## 故障排除
+
+### 导入错误
+
+如果遇到 `ModuleNotFoundError`，请确保已安装所有依赖：
+
+```bash
+pip install -r requirements.txt
+```
+
+### CUDA 错误
+
+如果遇到 CUDA 相关错误，请检查：
+1. CUDA 版本是否正确
+2. PyTorch 是否支持 CUDA
+3. 显存是否足够
+
+### 模型加载失败
+
+如果模型加载失败，请检查：
+1. 模型文件是否存在
+2. 模型文件是否损坏
+3. 索引文件是否完整
+
+## 性能优化
+
+- 使用 GPU 加速推理
+- 批量处理图像
+- 调整图像尺寸
+- 使用量化模型
 
 ---
 打包时间: {package_time}
@@ -1060,11 +635,17 @@ python inference.py --image_path path/to/image.jpg --multiple --min_confidence 0
         """打印打包摘要"""
         print(f"\n打包完成!")
         print(f"  输出目录: {self.output_path.absolute()}")
+        print(f"  模型类型: {MODEL_CONFIG.get('model_type', 'unknown')}")
+        print(f"  主干网络: {MODEL_CONFIG.get('backbone', 'unknown')}")
+        print(f"  特征维度: {MODEL_CONFIG.get('embedding_dim', 256)}")
         print(f"\n下一步:")
         print(f"  1. 将 {self.output_path.name} 目录复制到目标机器")
         print(f"  2. 安装依赖: pip install -r requirements.txt")
-        print(f"  3. 运行推理: python deploy_package/inference.py --image_path path/to/image.jpg")
-        print(f"  4. 多物体识别: python deploy_package/inference.py --image_path path/to/image --multiple")
+        print(f"  3. 运行推理: python {self.output_path.name}/inference.py --image_path path/to/image.jpg")
+        print(f"  4. 多物体识别: python {self.output_path.name}/inference.py --image_path path/to/image --multiple")
+        print(f"\n注意事项:")
+        print(f"  - 推理脚本依赖 backend 模块，请确保完整复制项目结构")
+        print(f"  - 如果只需要推理功能，可以只复制必要的文件")
 
 
 def package_model(output_dir: str = "deploy_package", skip_inference_script: bool = False) -> None:

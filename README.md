@@ -235,9 +235,6 @@ reagent-vision/
 │   ├── inference.py                ← 推理脚本
 │   ├── requirements.txt
 │   └── README.md
-├── docs/
-│   ├── TUTORIAL.md                 ← 手把手教程
-│   └── correction_workflow.md       ← 纠错系统使用指南 ⭐
 ├── Environment.yml                 ← Conda环境配置
 └── README.md                       ← 本文件
 ```
