@@ -289,7 +289,7 @@ export default function MultipleRecognize() {
   }
 
   const handleOpenCorrection = (obj, type) => {
-    setCorrectionObject({ obj, type })
+    setCorrectionObject({ obj, type, uniqueId: Date.now() })
     setShowCorrectionModal(true)
     setCropPixels(null)
     form.setFieldsValue({
@@ -754,7 +754,7 @@ export default function MultipleRecognize() {
               {capturedImage && correctionObject && (
                 <div>
                   <ImageCropper
-                    key={`cropper-${correctionObject?.type}-${correctionObject?.obj?.reagent_id || 'unknown'}`}
+                    key={`cropper-${correctionObject?.type}-${correctionObject?.obj?.reagent_id || 'unknown'}-${correctionObject?.uniqueId}`}
                     src={capturedImage}
                     height={400}
                     initialCrop={correctionObject?.obj?.crop_bbox

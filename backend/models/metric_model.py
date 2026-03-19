@@ -1,13 +1,19 @@
 # backend/models/metric_model.py
 """
 核心识别模型:
-EfficientNet-B0 特征提取器 + ArcFace Loss
+EfficientNetV2-S 特征提取器 + ArcFace Loss
 实现细粒度试剂识别的Metric Learning
 
 原理：
 - ArcFace在超球面上施加角度边距，
   同类试剂的嵌入向量更聚拢，
   不同试剂(即使名称相同但包装不同)更分离
+
+EfficientNetV2 优势：
+- 训练速度更快（渐进式训练）
+- 参数效率更高
+- 鲁棒性更强
+- 更适合现代硬件
 """
 
 import torch
@@ -15,37 +21,55 @@ import torch.nn as nn
 import torch.nn.functional as F
 import timm
 import math
-from typing import Optional
+from typing import Optional, Tuple
 
 
-class EfficientNetEmbedder(nn.Module):
+class EfficientNetV2Embedder(nn.Module):
     """
-    EfficientNet-B2 特征提取器
-    输出512维归一化嵌入向量
+    EfficientNetV2-S 特征提取器
+    输出256维归一化嵌入向量
+    
+    EfficientNetV2-S 特点：
+    - 参数量约 20M，适合 1050Ti 4GB 显存
+    - 输入尺寸推荐 384x384
+    - 训练速度比 V1 快 2-3 倍
+    - ImageNet-21K 预训练权重可用
     """
 
-    def __init__(self, embedding_dim: int = 512, pretrained: bool = True):
+    def __init__(self, embedding_dim: int = 256, pretrained: bool = True):
         super().__init__()
 
-        # 加载EfficientNet-B2主干（ImageNet预训练）
-        self.backbone = timm.create_model(
-            "efficientnet_b2",
-            pretrained=pretrained,
-            num_classes=0,  # 去掉分类头，只要特征
-            global_pool="avg",  # 全局平均池化
-        )
+        # 加载EfficientNetV2-S主干（ImageNet预训练）
+        try:
+            self.backbone = timm.create_model(
+                "tf_efficientnetv2_s",
+                pretrained=pretrained,
+                num_classes=0,
+                global_pool="avg",
+            )
+        except RuntimeError:
+            print("[Warning] 无法加载预训练权重，使用随机初始化")
+            self.backbone = timm.create_model(
+                "tf_efficientnetv2_s",
+                pretrained=False,
+                num_classes=0,
+                global_pool="avg",
+            )
 
         # backbone输出维度
         backbone_out_dim = self.backbone.num_features  # 1280
 
-        # 投影头: 1280 → 512
+        # 投影头: 1280 → 256
         self.projector = nn.Sequential(
-            nn.Linear(backbone_out_dim, 1024),
-            nn.BatchNorm1d(1024),
+            # nn.Linear(backbone_out_dim, 512) 256 容易过拟合
+            nn.Linear(backbone_out_dim, 512),
+            # nn.BatchNorm1d(1024),
+            nn.LayerNorm(512),
             nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(1024, embedding_dim),
-            nn.BatchNorm1d(embedding_dim),
+            nn.Dropout(0.2),
+            nn.Linear(512, embedding_dim),
+            # nn.BatchNorm1d(embedding_dim),
+            # nn.LayerNorm(embedding_dim),
         )
 
         self.embedding_dim = embedding_dim
@@ -55,13 +79,13 @@ class EfficientNetEmbedder(nn.Module):
         Args:
             x: 图像张量 [B, 3, H, W]
         Returns:
-            embeddings: L2归一化嵌入向量 [B, 512]
+            embeddings: L2归一化嵌入向量 [B, 256]
         """
         # 提取backbone特征
         features = self.backbone(x)  # [B, 1280]
 
-        # 投影到512维
-        embeddings = self.projector(features)  # [B, 512]
+        # 投影到256维
+        embeddings = self.projector(features)  # [B, 256]
 
         # L2归一化 - ArcFace必须在单位超球面上
         embeddings = F.normalize(embeddings, p=2, dim=1)
@@ -117,7 +141,7 @@ class ArcFaceLoss(nn.Module):
     ) -> torch.Tensor:
         """
         Args:
-            embeddings: L2归一化嵌入 [B, 512]
+            embeddings: L2归一化嵌入 [B, embedding_dim]
             labels: 类别标签 [B]
         Returns:
             loss: ArcFace损失值
@@ -180,21 +204,21 @@ class TripletLoss(nn.Module):
 class ReagentRecognitionModel(nn.Module):
     """
     完整的试剂识别模型
-    训练阶段：EfficientNet + ArcFace Loss (+ Triplet Loss)
-    推理阶段：只用EfficientNet提取嵌入，FAISS检索
+    训练阶段：EfficientNetV2-S + ArcFace Loss (+ Triplet Loss)
+    推理阶段：只用EfficientNetV2-S提取嵌入，FAISS检索
     """
 
     def __init__(
             self,
             num_classes: int,
-            embedding_dim: int = 512,
+            embedding_dim: int = 256,
             pretrained: bool = True,
             arcface_margin: float = 0.5,
             arcface_scale: float = 64.0,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
-        self.embedder = EfficientNetEmbedder(
+        self.embedder = EfficientNetV2Embedder(
             embedding_dim=embedding_dim,
             pretrained=pretrained
         )
@@ -210,12 +234,39 @@ class ReagentRecognitionModel(nn.Module):
             self,
             x: torch.Tensor,
             labels: Optional[torch.Tensor] = None,
+            triplet_data: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = None,
     ):
+        """
+        前向传播
+        
+        Args:
+            x: 输入图像 [B, 3, H, W]
+            labels: 类别标签 [B] (用于 ArcFace Loss)
+            triplet_data: (anchor, positive, negative) 元组 (用于 Triplet Loss)
+        
+        Returns:
+            如果 labels 不为 None: (embeddings, arc_loss)
+            如果 triplet_data 不为 None: (anchor_emb, triplet_loss)
+            否则: embeddings
+        """
+        # Triplet Loss 模式（优先检查，因为 x 可能为 None）
+        if triplet_data is not None:
+            anchor, positive, negative = triplet_data
+            anchor_emb = self.embedder(anchor)
+            positive_emb = self.embedder(positive)
+            negative_emb = self.embedder(negative)
+            triplet_loss = self.triplet_loss(anchor_emb, positive_emb, negative_emb)
+            return anchor_emb, triplet_loss
+
+        # 正常模式：处理 x
         embeddings = self.embedder(x)
 
+        # ArcFace Loss 模式
         if labels is not None:
             arc_loss = self.arcface(embeddings, labels)
             return embeddings, arc_loss
+        
+        # 推理模式
         return embeddings
 
     def get_embedding(self, x: torch.Tensor) -> torch.Tensor:

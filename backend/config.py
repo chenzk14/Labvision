@@ -26,27 +26,29 @@ for d in [IMAGES_DIR, EMBEDDINGS_DIR, DB_DIR, MODELS_DIR, LOGS_DIR]:
 # ===================== 模型配置 =====================
 MODEL_CONFIG = {
 
-    # 模型类型: 单流EfficientNet + Metric Learning
-    "model_type": "single_efficientnet",
+    # 模型类型: 单流EfficientNetV2 + Metric Learning
+    "model_type": "single_efficientnetv2",
 
     # 主干网络
-    # efficientnet_b2 在 fine-grained 任务表现明显好于 b0
+    # efficientnetv2_s 在 fine-grained 任务表现优秀
+    # V2版本训练更快、参数效率更高、鲁棒性更强
     # 显存占用仍可被 1050Ti 接受
-    "backbone": "efficientnet_b2",
+    "backbone": "efficientnetv2_s",
 
     # 特征提取器类型
-    "feature_extractor": "efficientnet",
+    "feature_extractor": "efficientnetv2",
 
     # 特征向量维度
     "embedding_dim": 256,
 
     # 输入图像尺寸
-    # efficientnet_b2 推荐 260
-    "img_size": 260,
+    # efficientnetv2_s 推荐 384（V2版本支持更大的输入尺寸）
+    # "img_size": 384,
+    "img_size": 288,
 
     # ArcFace 参数
     "arcface_margin": 0.35,
-    "arcface_scale": 30,
+    "arcface_scale": 60,
 
     # 是否使用 Dropout
     "dropout": 0.3,
@@ -56,23 +58,21 @@ MODEL_CONFIG = {
 
     # Triplet Loss 参数
     "triplet_margin": 0.3,
-    "triplet_weight": 0.5,
-
-    # ArcFace Loss 权重
-    "arcface_weight": 1.0,
 }
 
 # ===================== 训练配置 =====================
 TRAIN_CONFIG = {
 
     # batch
-    "batch_size": 8,
+    # "batch_size": 8,
+    "batch_size": 4,
 
     # 训练轮数
     "epochs": 120,
 
     # 初始学习率
-    "lr": 5e-5,
+    # "lr": 5e-5,   #5e-5 在小数据上收敛极慢甚至不收敛
+    "lr": 3e-4,
 
     # 权重衰减
     "weight_decay": 5e-5,
@@ -102,9 +102,13 @@ TRAIN_CONFIG = {
     # Triplet Loss
     "triplet_margin": 0.3,
 
-    # Loss权重
-    "arcface_weight": 0.5,
-    "triplet_weight": 1.0,
+    # Loss权重  也是ArcFace  暂时关闭
+    #ArcFace 是主loss（分类结构）
+    #Triplet 是辅助（需要大量样本才稳定）
+    # "arcface_weight": 0.5,
+    # "triplet_weight": 1.0,
+    "arcface_weight": 1.0,
+    "triplet_weight": 0.0,   # 或直接0.0先关闭
 
     # temperature
     "temperature": 0.05,
@@ -128,11 +132,9 @@ AUG_CONFIG = {
         "hue": 0.05,
     },
 
-    "random_rotate": 10,
-
+    "random_rotate": 5,
     "random_crop_scale": (0.85, 1.0),
-
-    "gaussian_blur": 0.1,
+    "gaussian_blur": 0.0,
 
 }
 
@@ -156,7 +158,7 @@ FAISS_CONFIG = {
 INFERENCE_CONFIG = {
 
     # 相似度阈值
-    "similarity_threshold": 0.68,
+    "similarity_threshold": 0.7,
 
     # TopK
     "topk": 5,
@@ -186,7 +188,7 @@ DETECTION_CONFIG = {
     "device": "auto",
 
     # 检测置信度阈值
-    "confidence_threshold": 0.5,
+    "confidence_threshold": 0.7,
 
     # NMS的IOU阈值
     "iou_threshold": 0.45,

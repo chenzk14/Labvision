@@ -4,24 +4,26 @@
 
 ## ✨ 核心特性
 
-- 🔍 **智能识别**：基于EfficientNet + ArcFace的细粒度识别
-- 🎯 **多物体检测**：YOLOv8同时识别多个试剂瓶
-- 📚 **试剂库管理**：完整的试剂录入、查询、删除功能
-- 🔄 **纠错学习**：持续学习机制，识别错误可人工纠错
-- 📊 **实时监控**：识别日志、统计分析、系统状态监控
-- 🚀 **快速部署**：一键部署包，支持离线运行
+- **智能识别**：基于EfficientNetV2-S + ArcFace的细粒度识别
+- **多物体检测**：YOLOv11同时识别多个试剂瓶
+- **试剂库管理**：完整的试剂录入、查询、删除功能
+- **纠错学习**：持续学习机制，识别错误可人工纠错
+- **实时监控**：识别日志、统计分析、系统状态监控
+- **快速部署**：一键部署包，支持离线运行
+- **显存优化**：混合精度训练 + 梯度累积，适配1050Ti 4GB显存
 
 ---
 
 ## 🛠️ 环境配置
 
-### 1. 创建Conda环境
+### 创建Conda环境
 ```bash
 conda env create -f environment.yml
 conda activate reagent-vision
 ```
 
-# 前端依赖（可选，如果需要开发前端）
+# 前端依赖
+```bash
 cd forntend
 npm install
 ```
@@ -39,11 +41,11 @@ python -c "import ultralytics; print('YOLOv8 installed successfully')"
 ### 目录结构
 ```
 data/
-├── images/                     # 试剂图片数据集
-│   ├── 乙醇001/
+├── images/                     # 图片数据集
+│   ├── 类别001/
 │   │   ├── 1773279184217_front.jpg
 │   │   └── ...
-│   ├── 乙醇002/
+│   ├── 类别002/
 │   │   ├── 1773279742602_front.jpg
 │   │   └── ...
 ├── embeddings/                 # FAISS索引文件
@@ -55,17 +57,11 @@ data/
 ```
 
 ### 数据要求
-- 每个试剂类别至少10-20张图片
+- 每个类别至少10-20张图片
 - 支持多角度拍摄（正面、侧面、顶部）
 - 图片格式：jpg、png
 - 建议图片尺寸：≥ 640x480
-
-### 数据增强策略
-系统会自动进行以下数据增强：
-- 随机旋转、翻转
-- 颜色抖动
-- 高斯模糊
-- 随机裁剪
+- 小样本模式：自动优化训练参数（lr=3e-4, epochs=80, val_split=0.2）
 
 ---
 
@@ -73,39 +69,47 @@ data/
 
 ### 训练命令
 ```bash
-python scripts/train.py
+# 小样本模式（默认，自动覆盖参数，训练后自动建索引）
+python scripts/train.py --data_dir data/images
+
+# 想用 config.py 中的原始参数
+python scripts/train.py --data_dir data/images --no_small_sample
+
+# 禁用自动构建索引
+python scripts/train.py --data_dir data/images --no-build-index
 ```
 
 ### 训练配置（backend/config.py）
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| batch_size | 16 | 批次大小（适配1050Ti 4GB显存） |
-| epochs | 50 | 最大训练轮数 |
-| lr | 1e-4 | 学习率 |
-| val_split | 0.2 | 验证集比例 |
-| early_stop_patience | 10 | 早停耐心值 |
+| backbone | efficientnetv2_s | 主干网络（EfficientNetV2-S） |
+| img_size | 288 | 输入图像尺寸（EfficientNetV2-S推荐384，288适配1050Ti 4GB显存） |
+| batch_size | 4 | 批次大小（配合梯度累积，有效batch=16） |
+| epochs | 120 | 最大训练轮数 |
+| lr | 3e-4 | 学习率（小样本优化） |
+| val_split | 0.3 | 验证集比例 |
+| early_stop_patience | 30 | 早停耐心值 |
+| arcface_weight | 1.0 | ArcFace Loss 权重 |
+| triplet_weight | 0.0 | TripletLoss 权重（小样本时关闭） |
+| accumulation_steps | 4 | 梯度累积步数 |
+| use_amp | True | 混合精度训练（节省显存） |
 
 ### 训练输出
 - 模型保存：`saved_models/best_model.pth`
 - 训练日志：`logs/`
+- FAISS索引：`data/embeddings/reagent.index`（训练后自动构建）
 - TensorBoard：`tensorboard --logdir logs`
 
 ### 预计训练时间
-- 25张图片，5个类别：10-30分钟
-- 100张图片，10个类别：30-60分钟
+- 25张图片，3个类别：5-15分钟（小样本模式）
+- 100张图片，10个类别：20-40分钟
+- 1050Ti 4GB显存：显存占用约1500-2000M
+- 梯度累积：有效batch_size=4×4=16
 
 ### 训练监控
 ```bash
 tensorboard --logdir=logs
 ```
-
-监控指标：
-- Loss/train - 训练损失（应该持续下降）
-- Loss/val - 验证损失（不应持续上升）
-- Accuracy/train - 训练准确率（应该持续上升）
-- Accuracy/val - 验证准确率（应该稳定上升）
-- Learning Rate - 学习率变化
-
 ---
 
 ## 🔍 构建索引
@@ -181,12 +185,12 @@ reagent-vision/
 ├── backend/
 │   ├── config.py                    ← 所有超参数配置
 │   ├── models/
-│   │   └── metric_model.py          ← EfficientNet-B2 + ArcFace 核心模型
+│   │   └── metric_model.py          ← EfficientNetV2-S + ArcFace 核心模型
 │   ├── core/
 │   │   ├── dataset.py               ← 数据集 + 增强策略
-│   │   ├── trainer.py               ← 训练引擎（混合精度/早停）
+│   │   ├── trainer.py               ← 训练引擎（混合精度/梯度累积/早停）
 │   │   ├── recognition_engine.py    ← FAISS识别引擎（注册/检索）
-│   │   ├── object_detector.py       ← YOLOv8目标检测（多物体）
+│   │   ├── object_detector.py       ← YOLOv11目标检测（多物体）
 │   │   └── database.py              ← SQLite数据库
 │   └── api/
 │       └── main.py                  ← FastAPI全部接口
@@ -246,15 +250,41 @@ reagent-vision/
 在backend/config.py中修改：
 ```python
 MODEL_CONFIG = {
-    "backbone": "swin_tiny_patch4_window7_224",  # 细粒度识别推荐
-    # 或 "resnet50", "convnext_tiny", "mobilenetv3_large_100"
+    "backbone": "efficientnetv2_s",  # 默认：EfficientNetV2-S
+    "img_size": 288,  # 输入尺寸，V2-S推荐384
+    # 其他选项：
+    # "efficientnetv2_t" - 更小，显存占用更低
+    # "efficientnetv2_m" - 更大，精度更高
 }
+```
+
+### 显存优化配置
+系统已针对1050Ti 4GB显存优化：
+- ✅ 混合精度训练（AMP）：节省30%显存
+- ✅ 梯度累积：有效batch_size=4×4=16
+- ✅ 输入尺寸优化：288×288（平衡精度和显存，EfficientNetV2-S推荐384）
+- ✅ TripletLoss默认关闭：小样本时节省显存
+- ✅ 投影头优化：1280→512→256，避免直接映射到256维导致过拟合
+
+如需进一步优化显存：
+```python
+# 减小输入尺寸
+"img_size": 256  # 从288降低
+
+# 减小batch size
+"batch_size": 2  # 从4降低
+
+# TripletLoss默认已关闭
+"triplet_weight": 0.0
+
+# 使用更小的模型
+"backbone": "efficientnetv2_t"
 ```
 
 ### 调整识别阈值
 ```python
 INFERENCE_CONFIG = {
-    "similarity_threshold": 0.75,  # 提高阈值减少误识别
+    "similarity_threshold": 0.7,  # 默认0.7，提高阈值减少误识别
     # 或降低到0.65增加召回率
 }
 ```
@@ -318,7 +348,7 @@ python scripts/correction_manager.py --action camera --camera 0
 python scripts/correction_manager.py --action export --output data/corrections
 
 # 验证纠错质量
-python scripts/correction_manager.py --action verify --reagent_id 乙醇001
+python scripts/correction_manager.py --action verify --reagent_id 类别001
 ```
 
 ### 纠错工作流程
@@ -357,9 +387,22 @@ tensorboard --logdir logs
 
 ## 📝 更新日志
 
-### v2.1 (最新)
+### v2.2 (最新)
 | 版本 | 类型 | 内容 |
 |------|------|------|
+| v2.2 | ⚡ 性能 | 升级到EfficientNetV2-S（训练速度提升2-3倍） |
+|      |        | 添加混合精度训练（节省30%显存） |
+|      |        | 添加梯度累积（有效batch_size=16） |
+|      |        | 优化输入尺寸为288（EfficientNetV2-S推荐384） |
+|      | 🎯 模型 | 升级YOLOv8到YOLOv11（精度更高） |
+|      |        | TripletLoss默认关闭（小样本优化） |
+|      |        | 学习率优化为3e-4（小样本收敛更快） |
+|      | 🔧 依赖 | 升级ultralytics到8.2.0+（支持YOLOv11） |
+|      |        | 升级timm到0.9.14+（支持EfficientNetV2预训练） |
+|      | 🐛 修复 | 修复学习率调度器警告 |
+|      |        | 修复TripletLoss未生效问题 |
+|      |        | 修复forward方法逻辑错误 |
+|      | ✨ 新增 | 训练后自动构建FAISS索引 |
 | v2.1 | ✨ 新增 | 新增纠错管理系统 |
 |      |        | 摄像头纠错功能 |
 |      |        | 批量应用纠错 |

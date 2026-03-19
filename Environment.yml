@@ -14,7 +14,7 @@ dependencies:
       - torchaudio==2.0.2
 
       # 深度学习核心
-      - timm==0.9.12          # EfficientNet等模型库
+      - timm==0.9.14          # EfficientNet/EfficientNetV2等模型库（支持V2版本）
       - faiss-cpu==1.7.4      # 向量检索（1050Ti用cpu版更稳定）
       - numpy==1.24.4
       - opencv-python==4.8.1.78

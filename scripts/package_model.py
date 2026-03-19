@@ -226,9 +226,9 @@ class ObjectDetector:
         return results
 
 
-class EfficientNetEmbedder(nn.Module):
-    """EfficientNet特征提取器"""
-    def __init__(self, embedding_dim: int = 256, backbone: str = "efficientnet_b2", pretrained: bool = False):
+class EfficientNetV2Embedder(nn.Module):
+    """EfficientNetV2特征提取器"""
+    def __init__(self, embedding_dim: int = 256, backbone: str = "efficientnetv2_s", pretrained: bool = False):
         super().__init__()
         self.backbone = timm.create_model(
             backbone,
@@ -286,13 +286,13 @@ class ReagentRecognitionModel(nn.Module):
         self,
         num_classes: int,
         embedding_dim: int = 256,
-        backbone: str = "efficientnet_b2",
+        backbone: str = "efficientnetv2_s",
         pretrained: bool = False,
         arcface_margin: float = 0.35,
         arcface_scale: float = 30.0,
     ):
         super().__init__()
-        self.embedder = EfficientNetEmbedder(
+        self.embedder = EfficientNetV2Embedder(
             embedding_dim=embedding_dim,
             backbone=backbone,
             pretrained=pretrained
